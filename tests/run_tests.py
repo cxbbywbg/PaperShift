@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 import zipfile
@@ -472,7 +473,7 @@ def test_template_archive() -> None:
     check("模板压缩包：包内只有一份模板时不报多候选提醒",
           "CVT013" not in (Path(res_zip["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
 
-    # ---- 包内多份候选（elsarticle kit 就是这样）：必须提醒 ----
+    # ---- 包内同族版式（elsarticle kit 的 num / harv 就是这样）：各产出一份 ----
     multi = _make_zip(zips / "multi.zip", {
         "kit/myjournal.cls": TEMPLATE_KIT / "myjournal.cls",
         "kit/elsarticle-template-num.tex": base,
@@ -480,15 +481,37 @@ def test_template_archive() -> None:
     })
     res_m = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-multi", cwd=ROOT,
                          make_pdf=False, log=Log(verbose=False), template=str(multi))
-    check("模板压缩包：包内多份候选时提醒用户（CVT013）",
-          "CVT013" in (Path(res_m["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
+    check("模板包内同族版式（num / harv）默认各产出一份结果包",
+          res_m.get("multi") and res_m.get("variant_count") == 2,
+          f"multi={res_m.get('multi')} n={res_m.get('variant_count')}")
+    ids = [r["journal_id"] for r in res_m.get("variants", [])]
+    check("变体结果包目录带版式后缀，互不覆盖",
+          ids == ["template-only-num", "template-only-harv"], str(ids))
+    styles = []
+    for r in res_m.get("variants", []):
+        t = (Path(r["journal_dir"]) / "src" / "main.tex").read_text(encoding="utf-8")
+        mm = re.search(r"\\bibliographystyle\{([^}]*)\}", t)
+        styles.append(mm.group(1) if mm else "")
+    check("每个变体套用自己那份模板的文献样式",
+          styles == ["myjournal-num", "myjournal-harv"], str(styles))
+
+    # ---- 包内多份候选但**不同族**：没有变体可展开，仍按 CVT013 提醒 ----
+    mixed = _make_zip(zips / "mixed.zip", {
+        "kit/alpha-template.tex": base,
+        "kit/beta-guide.tex": base,
+    })
+    res_x = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-mixed", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(mixed))
+    check("包内多份候选但不同族时，仍报 CVT013 提醒人工过目",
+          "CVT013" in (Path(res_x["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
 
     res_p = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-pick", cwd=ROOT, make_pdf=False,
                          log=Log(verbose=False),
                          template=f"{multi}::kit/elsarticle-template-num.tex")
     t_p = (Path(res_p["journal_dir"]) / "src" / "main.tex").read_text(encoding="utf-8")
-    check("模板压缩包：zip::包内路径 可指定用哪一份模板",
+    check("模板压缩包：zip::包内路径 可指定用哪一份模板（不再展开变体）",
           "\\bibliographystyle{myjournal-num}" in t_p
+          and not res_p.get("multi")
           and "CVT013" not in (Path(res_p["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
 
     # ---- 失败路径：必须降级并说清原因，不能静默 ----
@@ -542,7 +565,82 @@ def test_template_archive() -> None:
     c2 = _extract_archive(kit)
     check("模板压缩包：同一模板重复解析命中解包缓存（不重复解包）",
           c1 == c2 and (c1 / "kit/myjournal-template.tex").is_file(), str(c1))
+
+    # ---- 主文件识别：命名分档优先，体积只做兜底 ----
+    # 反例集：说明书 20 KB（比模板大 4 倍）、字体映射表 200 KB（根本不是文档）
+    pick = OUT / "pickroot"
+    if pick.exists():
+        shutil.rmtree(pick, ignore_errors=True)
+    (pick / "doc").mkdir(parents=True)
+    (pick / "doc" / "elsdoc-cas.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "x" * 20000 + "\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (pick / "doc" / "glyphtounicode.tex").write_text(
+        "% 字体映射表\n" + "y" * 200000, encoding="utf-8", newline="\n",
+    )
+    (pick / "cas-dc-sample.tex").write_text(
+        "\\documentclass{cas-dc}\n\\begin{document}\n" + "z" * 15000 + "\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (pick / "cas-sc-template.tex").write_text(
+        "\\documentclass{cas-sc}\n\\begin{document}\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    main_pick, _all_pick = J._pick_archive_main(pick, "latex")
+    check("模板主文件识别：按体积会选到说明书/示例，按命名分档选到 template",
+          main_pick is not None and main_pick.name == "cas-sc-template.tex",
+          main_pick.name if main_pick else "None")
+    check("模板主文件识别：200 KB 的字体映射表（无 \\documentclass）不会当选",
+          main_pick is not None and "glyphtounicode" not in main_pick.name,
+          main_pick.name if main_pick else "None")
+
     J.ARCHIVE_CACHE_DIR = orig_cache
+
+
+def test_main_tex_pick() -> None:
+    """原稿主文件识别：多候选时按体积挑，而不是字母序。
+
+    真实教训——作者的正文一定是包里最大的 .tex（实测 106.9 KB，是第二名的
+    8 倍）。但主文件叫 `draft_v3.tex` 而包里另有 `Response_to_Reviewers.tex`
+    时，大写 `R` 的 ASCII 比小写 `d` 小，字母序会把**审稿回复信**当正文。
+    """
+    print("\n== 原稿主文件识别（多候选）==")
+    proj = OUT / "mainpick"
+    if proj.exists():
+        shutil.rmtree(proj, ignore_errors=True)
+    proj.mkdir(parents=True)
+    (proj / "Response_to_Reviewers.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n回复审稿人\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (proj / "Title_Page.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n标题页\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (proj / "draft_v3.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "正文" * 5000 + "\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    picked = latex_parse.find_main_tex(proj)
+    check("原稿主文件识别：多候选时选体积最大的（正文），不是字母序第一个",
+          picked is not None and Path(picked).name == "draft_v3.tex",
+          Path(picked).name if picked else "None")
+
+    # 被 \input 引用的文件不当主文件——即使它体积最大
+    (proj / "supp.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "附录" * 20000 + "\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (proj / "draft_v3.tex").write_text(
+        "\\documentclass{article}\n\\begin{document}\n" + "正文" * 5000
+        + "\n\\input{supp}\n\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    picked2 = latex_parse.find_main_tex(proj)
+    check("原稿主文件识别：被 \\input 引用的文件不当主文件（即使它体积最大）",
+          picked2 is not None and Path(picked2).name == "draft_v3.tex",
+          Path(picked2).name if picked2 else "None")
 
 
 # 真实投稿里踩过的元信息/文献区坑（Springer sn-jnl 原稿 + Elsevier CAS 模板）
@@ -963,7 +1061,8 @@ def main() -> int:
 
     for fn in (test_latex_parse, test_latex_qc, test_latex_convert_roundtrip,
                test_docx_parse, test_docx_convert, test_pipeline,
-               test_template_mode, test_template_archive, test_frontmatter_regression,
+               test_template_mode, test_template_archive, test_main_tex_pick,
+               test_frontmatter_regression,
                test_rule_binding, test_issue_code_hygiene):
         try:
             fn()

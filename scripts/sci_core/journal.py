@@ -494,10 +494,85 @@ _ARCHIVE_MARKER = ".sci-trans-extracted"
 _JUNK_DIRS = {"__MACOSX"}
 _JUNK_PREFIXES = ("._", "~$")
 
-# 主文件命名偏好：命中越靠前越像「模板主文件」
-_MAIN_NAME_HINTS = (
-    "main", "template", "sample", "manuscript", "article", "paper", "submission",
+# 主文件命名信号，**分正负两档**。
+#
+# 官方 kit 里 template / main / manuscript 是模板本体，sample / example / doc /
+# manual 是示例与说明书。这两类既不能只看体积、也不能只看名字：
+#   * 按体积——实测 Elsevier CAS 包里最大的合法文档是 18.5 KB 的
+#     `doc/elsdoc-cas.tex`（使用说明书），真正的模板 `cas-sc-template.tex`
+#     只有 4.9 KB，是候选里最小的；
+#   * 按名字全等匹配——文件名是 `cas-sc-template`，stem 不等于 `template`，
+#     四个候选全部不命中，最后退回路径字典序，选到 `cas-dc-sample.tex`。
+# 所以改成「分词 + 正负计分」，体积只在同档时做兜底。
+_MAIN_NAME_GOOD = ("main", "template", "manuscript", "article", "paper", "submission")
+_MAIN_NAME_BAD = (
+    "sample", "example", "demo", "doc", "manual", "guide", "readme",
+    "instruction", "note",
 )
+
+# 版式标记词：文件名里带这些 token 的，视为「同一份模板的不同版式变体」。
+# Elsevier 的 cas-sc / cas-dc（单栏 / 双栏）、elsarticle 的 num / harv
+# （数字制 / 著者年制）都是这一形态：结构完全一致，只有文档类或引用样式不同。
+_VARIANT_TOKENS = frozenset({
+    "sc", "dc", "onecolumn", "twocolumn", "onecol", "twocol", "1col", "2col",
+    "single", "double", "singlecolumn", "doublecolumn",
+    "num", "numeric", "numbered", "harv", "authoryear", "names",
+})
+
+# 变体产出顺序：常见「默认版式」排前面（单栏、数字引用制），双栏与著者年制
+# 排后面。不定义的话会退化成路径字典序——`dc` 会跑到 `sc` 前面、`harv` 会跑到
+# `num` 前面，结果包编号与作者预期相反。
+_VARIANT_ORDER = (
+    "sc", "onecolumn", "onecol", "1col", "single", "singlecolumn",
+    "num", "numeric", "numbered",
+    "dc", "twocolumn", "twocol", "2col", "double", "doublecolumn",
+)
+
+# 一次最多展开几个变体：同名不同版式的文件理论上可以很多，全出会淹掉结果包。
+MAX_TEMPLATE_VARIANTS = 4
+
+
+def _variant_rank(label: str) -> tuple:
+    if label in _VARIANT_ORDER:
+        return (0, _VARIANT_ORDER.index(label))
+    return (1, 0)
+
+
+def _file_size(p: Path) -> int:
+    try:
+        return p.stat().st_size
+    except OSError:
+        return 0
+
+
+def _split_stem(p: Path) -> list[str]:
+    return [t for t in re.split(r"[-_.\s]+", p.stem.lower()) if t]
+
+
+def _name_score(p: Path) -> int:
+    """文件名「像不像模板本体」的信号，正负分档。"""
+    score = 0
+    for t in _split_stem(p):
+        if t in _MAIN_NAME_GOOD:
+            score += 1
+        elif t in _MAIN_NAME_BAD:
+            score -= 1
+    return score
+
+
+def _variant_key(p: Path) -> tuple[str, str]:
+    r"""把候选归入「同族」，并给出该变体的版式标签。
+
+    族键 = 所在目录 + **剥掉版式标记后**的名字主干，于是：
+
+    * `cas-sc-template.tex` 与 `cas-dc-template.tex` → 同族，标签 `sc` / `dc`
+    * `cas-sc-sample.tex` → 主干含 `sample`，属于另一个族，不会被混进来
+    * `elsarticle-num.tex` 与 `elsarticle-harv.tex` → 同族（`num-names` 也同族）
+    """
+    tokens = _split_stem(p)
+    kept = [t for t in tokens if t not in _VARIANT_TOKENS]
+    label = "-".join(t for t in tokens if t in _VARIANT_TOKENS)
+    return (f"{str(p.parent).lower()}|{'-'.join(kept)}", label)
 
 
 @dataclass
@@ -512,6 +587,7 @@ class TemplateResolution:
     reason: str = ""          # 解析失败的原因（用于报告）
     note: str = ""            # 解析成功但需要提醒（如包内有多份候选）
     archive: Path | None = None  # 若来自压缩包，记下包路径
+    variant: str = ""         # 同族变体的版式标签（sc / dc / num / harv…）
 
 
 def _is_junk(p: Path) -> bool:
@@ -533,15 +609,16 @@ def _pick_archive_main(root: Path, fmt: str) -> tuple[Path | None, list[Path]]:
     def rank(p: Path) -> tuple:
         depth = len(p.relative_to(root).parts)
         if fmt == "docx":
-            return (depth, str(p))
+            # Word 没有 \documentclass 这种骨架信号，靠命名 + 体积
+            return (-_name_score(p), depth, -_file_size(p), str(p))
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             text = ""
         # 同时含 \documentclass 与 \begin{document} 的才当得起「骨架」
         strong = ("\\documentclass" in text) + ("\\begin{document}" in text)
-        hint = int(p.stem.lower() in _MAIN_NAME_HINTS)
-        return (-strong, -hint, depth, str(p))
+        # 顺序：先骨架、再命名分档、再浅目录，体积只做同档兜底
+        return (-strong, -_name_score(p), depth, -_file_size(p), str(p))
 
     ordered = sorted(cands, key=rank)
     return ordered[0], ordered
@@ -686,6 +763,113 @@ def resolve_template_path(
 ) -> Path | None:
     """`resolve_template` 的薄封装：只要路径、不要原因。"""
     return resolve_template(spec, cfg, fmt, log).path
+
+
+def find_template_variants(
+    spec: str,
+    cfg: JournalConfig | None = None,
+    fmt: str = "",
+    log: Log | None = None,
+) -> list[TemplateResolution]:
+    r"""把一个模板解析成一组「同族变体」，供多变体产出使用。
+
+    返回列表的语义：
+
+    * 长度 1 —— 没有变体概念（单文件模板、用 `::` 明确指定了包内文件、
+      或包里只有一份候选），调用方按单份处理
+    * 长度 >1 —— 包内有同族的多份版式（Elsevier 的 cas-sc / cas-dc、
+      elsarticle 的 num / harv…），每份一个元素
+
+    选族规则：只考虑**成员数 ≥ 2** 的族（单成员谈不上变体），在其中有
+    「模板本体」命名信号的族优先——CAS 包里 `cas-?-template` 与
+    `cas-?-sample` 都成族，必须挑 template 那族，否则会拿示例去投。
+    """
+    if "::" in str(spec):
+        # 作者已经明确说了用哪一份，不再替他展开
+        return [resolve_template(spec, cfg, fmt, log)]
+
+    base = resolve_template(spec, cfg, fmt, log)
+    if base.path is None or base.archive is None:
+        return [base]
+
+    try:
+        root = _extract_archive(base.archive, log)  # 命中缓存，不会重复解包
+    except ValueError:
+        return [base]
+
+    if not fmt:
+        fmt = "latex" if any(not _is_junk(x) for x in root.rglob("*.tex")) else "docx"
+    pattern = "*.docx" if fmt == "docx" else "*.tex"
+    cands = [p for p in root.rglob(pattern) if not _is_junk(p)]
+    if not cands:
+        return [base]
+
+    families: dict[str, list[tuple[Path, str]]] = {}
+    for p in cands:
+        key, label = _variant_key(p)
+        families.setdefault(key, []).append((p, label))
+
+    multi = {k: v for k, v in families.items() if len(v) >= 2}
+    if not multi:
+        return [base]
+
+    best_key = sorted(
+        multi,
+        key=lambda k: (
+            -(sum(_name_score(p) for p, _ in multi[k]) / len(multi[k])),
+            -len(multi[k]),
+            k,
+        ),
+    )[0]
+    members = sorted(multi[best_key], key=lambda t: (_variant_rank(t[1]), t[1]))
+
+    if len(members) > MAX_TEMPLATE_VARIANTS:
+        if log:
+            log.warn(
+                f"模板包内有 {len(members)} 份同族版式，只展开前 {MAX_TEMPLATE_VARIANTS} 份"
+            )
+        members = members[:MAX_TEMPLATE_VARIANTS]
+
+    if log:
+        log.step(
+            "模板包内识别到 "
+            + "、".join(label or p.stem for p, label in members)
+            + f" 共 {len(members)} 份同族版式，将各产出一份结果包"
+        )
+    return [
+        TemplateResolution(
+            path=p,
+            note=str(p.relative_to(root)),
+            archive=base.archive,
+            variant=label or p.stem,
+        )
+        for p, label in members
+    ]
+
+
+def with_variant(
+    cfg: JournalConfig, label: str, template_path: str | Path
+) -> JournalConfig:
+    """派生出一个「版式变体」配置：id 带版式后缀，模板指向该变体文件。
+
+    同族版式会展开成多份结果包，靠 id 后缀区分目录，否则后一份会覆盖前一份。
+    """
+    import copy as _copy
+
+    raw = _copy.deepcopy(cfg.raw)
+    label = label or "variant"
+    raw["id"] = f"{cfg.id}-{label}"
+    out = raw.setdefault("output", {})
+    for side in ("latex", "docx"):
+        d = out.get(side)
+        if isinstance(d, dict) and d.get("base") == "template":
+            d["template"] = str(template_path)
+    new = _from_raw(raw, cfg.path)
+    new.notes = (
+        (cfg.notes + "\n" if cfg.notes else "")
+        + f"本次运行按模板包内的「{label}」版式转换（模板：{Path(template_path).name}）"
+    )
+    return new
 
 
 def from_template(template: str | Path, fmt: str = "") -> JournalConfig:

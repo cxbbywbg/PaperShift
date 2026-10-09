@@ -169,12 +169,22 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 |---|---|---|
 | 单文件 | `--template path/to/main.tex` | LaTeX 用 `.tex` 主文件，Word 用 `.docx` |
 | 压缩包 | `--template ~/Downloads/elsarticle.zip` | 自动解包、挑出包内主文件；包内 `.cls`/`.bst` 随结果包提供 |
-| 包内指定 | `--template 'kit.zip::elsarticle-template-num.tex'` | 包内有多份模板时，明确指定用哪一份 |
+| 包内指定 | `--template 'kit.zip::elsarticle-template-num.tex'` | 包内有多份模板时，明确指定用哪一份（**指定后不再自动展开变体**） |
+
+**包内有「同族版式」时默认各出一份。** Elsevier 的 CAS 包同时给了单栏（`cas-sc`）和双栏（`cas-dc`），elsarticle 给了数字制（`num`）和著者年制（`harv`）——这些是同一份模板的不同版式，结构完全一致，只有文档类或引用样式不同。工具把它们识别成一族、**每份各产出一个结果包**：
+
+```
+submission/journals/
+├── template-only-sc/     ← 单栏
+└── template-only-dc/     ← 双栏
+```
+
+判定规则：文件名剥掉版式标记（`sc`/`dc`、`1col`/`2col`、`num`/`harv`…）后**同名同目录**的算一族；包内有多族时挑「最像模板本体」的那族（`cas-?-template` 优先于 `cas-?-sample`）。只有一份模板时行为与单模板完全一致。
 
 **分工：期刊配置提供"规则"（图片 DPI、声明要求、篇幅上限…），模板提供"结构"（文档类、命令体系、版式骨架）。**
 
 - 两个都给 = 规则 + 结构都齐
-- 只给 `--template` = 只做结构移植，不做期刊规范判定（结果包目录名为 `template-only`）
+- 只给 `--template` = 只做结构移植，不做期刊规范判定（结果包目录名为 `template-only`，多变体时带版式后缀）
 
 模板模式的关键行为：
 
@@ -184,7 +194,10 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 - **摘要 / 标题 / 关键词用 LaTeX 原文**，`\method{}`、`41.7\%`、`$1.9\times$` 不会被抹平。
 - **模板自带的文献样式优先**，与期刊配置不一致时提示人工确认，不静默覆盖。
 - 结构定位失败（模板里找不到 `\begin{document}` 等）时**降级回定点手术并报 `CVT012`**，不静默失败。
-- **模板压缩包自动解包**：`--template kit.zip` 等价于「手工解压后指向包内主文件」，产出逐字节一致；包内 `readme`、作者须知、`__MACOSX` 垃圾不复制。包内有**多份**候选主文件时报 `CVT013` 并列出候选——不同候选常常对应不同引用样式（elsarticle 的 num / harv / num-names 就是三份不同模板），**必须人工过目**，不对就用 `kit.zip::包内路径` 指定。
+- **模板压缩包自动解包**：`--template kit.zip` 等价于「手工解压后指向包内主文件」，产出逐字节一致；包内 `readme`、作者须知、`__MACOSX` 垃圾不复制。
+- **包内同族版式自动各出一份**（见上方说明）。包内有多份候选但**不构成同族**时报 `CVT013` 并列出候选，**必须人工过目**；不对就用 `kit.zip::包内路径` 指定。
+- **主文件按「命名分档 + 体积」挑**：`template`/`main`/`manuscript` 加分，`sample`/`example`/`doc`/`manual` 减分。官方 kit 里按体积排第一名常常是**说明书**——实测 Elsevier CAS 包最大的合法文档是 18.5 KB 的 `elsdoc-cas.tex`，而真模板只有 4.9 KB，只看体积会选错。
+- **原稿主文件按体积挑**：作者的正文一定是包里最大的 `.tex`（实测 106.9 KB，是第二名的 8 倍）。多候选时按体积降序，被 `\input` 引用的文件排除在外。
 
 ---
 
@@ -272,7 +285,15 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 ```
 
 两个包都不用手工解压，结果与「手工解压后指向主文件」**逐字节一致**。包内的 `.cls`/`.bst` 照样随结果包提供，`readme`、作者须知、`__MACOSX` 垃圾不复制。
-若报告里出现 `CVT013`，说明包内有**多份**候选主文件、系统替你选了一份——**别跳过这条**，去核对报告里写明的"已选用"是不是你要的那份（elsarticle 的 num / harv 引用样式完全不同）。
+
+**CAS 这种单栏/双栏双模板的包，默认出两份结果**（`template-only-sc/` 和 `template-only-dc/`），可以直接对比排版效果再决定投哪一版。只想出一份就用 `::` 明确指定：
+
+```bash
+python scripts/sci.py run my-paper.zip \
+    --template 'els-cas-templates.zip::els-cas-templates/cas-sc-template.tex' -o out
+```
+
+若报告里出现 `CVT013`，说明包内有**多份**候选主文件但**不构成同族版式**（比如模板 + 说明书）、系统替你选了一份——**别跳过这条**，核对报告里写明的"已选用"是不是你要的那份。
 
 **A3. 盲审稿：作者信息在单独的标题页文件里**
 
@@ -373,7 +394,7 @@ python scripts/sci.py journals validate my-target-journal
 - `LTX100` —— 本机没有 TeX，**未做真实编译**，只做了静态检查。
 - `FIG060` —— 完全没解析到图片，图片检查被**跳过**，不是"通过"。
 - `DOC001` —— Word 文档有修订记录。**必须先在 Word 里接受或拒绝全部修订**再投稿。
-- `CVT013` —— 模板压缩包里有**多份**候选主文件，系统替你选了一份。**必须人工确认选对了**（elsarticle 的 num / harv / num-names 是三份引用样式不同的模板）；不对就用 `kit.zip::包内路径` 重新指定。
+- `CVT013` —— 模板压缩包里有**多份**候选主文件、且它们**不构成同族版式**，系统替你选了一份。**必须人工确认选对了**；不对就用 `kit.zip::包内路径` 重新指定。（同族版式如 cas-sc / cas-dc 不报此码，而是各出一份结果包。）
 
 ---
 
@@ -418,6 +439,7 @@ tools/install_skill.py  白名单式组装 + 多客户端安装
 - **Word 参考文献**若来自结构化文献字段（EndNote/Zotero 域）可较可靠转换；若是手打普通文本，只能解析后标记为"需人工确认"。
 - 内置期刊配置未经逐条核对，报告中会出现 `CFG001` 提示，属预期行为。
 - **模板压缩包只在解析阶段解包**：解到系统临时目录 `sci-trans-templates/`（目录名带内容指纹，模板换版本自动重建；重复使用直接命中缓存）。它不写进你的下载目录，也不进结果包。
+- **同族变体最多展开 4 份**：包里同名不同版式的文件理论上可以很多，全出会淹掉结果包，超过 4 份只取前 4 并给警告。变体展开目前只对 LaTeX 生效（Word 模板包几乎没有多版式主文件）。
 - **作者信息来自独立标题页时**：只在「另一个 `.tex` 的 `\title` 与主文件逐字相同」时才自动补入，并在转换记录里写明取自哪个文件。对不上就留空并列进「需作者确认」，绝不猜。
 - **嵌套在分组参数里的引用**：`scan_commands` 读到配平的分组会整块跳过，所以 `\textcolor{red}{\autoref{fig:x}}`、`\subfloat[题注\label{sub}]{\includegraphics{...}}` 这类写法额外走一遍不区分位置的补扫。补扫只做**新增**（不改已有结果），并过滤掉 `\ref{#1}` 这种宏体占位。
 - **不认「导言区里对 `\abstract` 的重定义」**：命令式摘要只取 `\begin{document}` 之后出现的那个。

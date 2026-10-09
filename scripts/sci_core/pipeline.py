@@ -34,10 +34,12 @@ from .issues import IssueBag
 from .journal import (
     JournalConfig,
     effective_rules,
+    find_template_variants,
     from_template,
     load as load_journal,
     validate as validate_journal,
     with_template,
+    with_variant,
 )
 from .latex_check import compile_project, pick_engine
 from .qc import run_qc, summarize
@@ -162,22 +164,18 @@ def make_pdf_preview(fmt: str, main_file: Path, out_dir: Path, log: Log) -> dict
 # --------------------------------------------------------------------------
 
 
-def run_pipeline(
-    input_path: str | Path,
-    journal_id: str = "",
-    out_root: str | Path = "submission",
-    cwd: str | Path | None = None,
-    make_pdf: bool = True,
-    log: Log | None = None,
-    template: str | None = None,
-) -> dict:
-    log = log or Log(verbose=True)
-    t0 = datetime.now()
-    cwd = Path(cwd) if cwd else Path.cwd()
-    out_root = Path(out_root).resolve()
-    submission = out_root / "submission"
+def _prepare_config(
+    journal_id: str,
+    template: str | None,
+    fmt: str,
+    cwd: Path,
+    log: Log,
+) -> tuple[JournalConfig, list]:
+    """构造本次运行的期刊配置并校验。
 
-    # ---- 0. 期刊配置 ----
+    抽出来是为了多变体共用：模板包展开成多份版式时，每份都从同一个基配置
+    派生（`with_variant`），不必重复加载。
+    """
     if journal_id:
         cfg = load_journal(journal_id, cwd, log)
         log.step(f"期刊配置：{cfg.name}（状态：{cfg.status}）")
@@ -187,18 +185,85 @@ def run_pipeline(
     else:
         raise ValueError("必须提供 --journal 或 --template 之一")
 
-    # ---- 1. 输入与解析 ----
+    # --template 覆盖：只覆盖与本次输入格式对应的那一侧
+    if template:
+        cfg = with_template(cfg, template, fmt)
+        log.step(f"模板覆盖（--template）：{template}")
+    return cfg, validate_journal(cfg)
+
+
+def run_pipeline(
+    input_path: str | Path,
+    journal_id: str = "",
+    out_root: str | Path = "submission",
+    cwd: str | Path | None = None,
+    make_pdf: bool = True,
+    log: Log | None = None,
+    template: str | None = None,
+) -> dict:
+    """完整流程入口。
+
+    模板压缩包里若含**同族版式**（Elsevier 的 cas-sc / cas-dc 单栏双栏、
+    elsarticle 的 num / harv 引用样式），默认**每份各产出一份结果包**，
+    目录名带版式后缀（`journals/template-only-sc/`、`...-dc/`）；只有一份
+    时行为与单模板完全一致。
+    """
+    log = log or Log(verbose=True)
+    cwd = Path(cwd) if cwd else Path.cwd()
+    out_root = Path(out_root).resolve()
+
+    # ---- 1. 输入与解析（多变体共享同一份解压结果）----
     work = out_root / "_work"
     work.mkdir(parents=True, exist_ok=True)
     fmt, target, _extract = resolve_input(input_path, work, log)
     log.step(f"输入格式：{fmt}，目标：{target}")
 
-    # --template 覆盖：只覆盖与本次输入格式对应的那一侧
-    if template:
-        cfg = with_template(cfg, template, fmt)
-        log.step(f"模板覆盖（--template）：{template}")
+    # ---- 2. 期刊配置 ----
+    cfg, cfg_problems = _prepare_config(journal_id, template, fmt, cwd, log)
 
-    cfg_problems = validate_journal(cfg)
+    # ---- 3. 模板变体展开 ----
+    targets: list[tuple[JournalConfig, str]] = [(cfg, "")]
+    if template and fmt == M.FMT_LATEX:
+        variants = find_template_variants(template, cfg, fmt, log)
+        if len(variants) > 1:
+            targets = [
+                (with_variant(cfg, v.variant, v.path), v.variant) for v in variants
+            ]
+
+    # ---- 4. 逐个目标产出结果包 ----
+    results = [
+        _run_one_target(cfg_v, cfg_problems, fmt, target, out_root, make_pdf, log, label)
+        for cfg_v, label in targets
+    ]
+    if len(results) == 1:
+        return results[0]
+    return _merge_variant_results(results, out_root)
+
+
+def _merge_variant_results(results: list[dict], out_root: Path) -> dict:
+    """把多份变体结果合成一个返回值：公共字段沿用第一份，另附全部变体。"""
+    merged = dict(results[0])
+    merged["multi"] = True
+    merged["variants"] = results
+    merged["variant_count"] = len(results)
+    merged["out_root"] = str(out_root)
+    return merged
+
+
+def _run_one_target(
+    cfg: JournalConfig,
+    cfg_problems: list,
+    fmt: str,
+    target: Path,
+    out_root: Path,
+    make_pdf: bool,
+    log: Log,
+    variant: str = "",
+) -> dict:
+    """对一个目标（期刊配置，或模板包里的某个版式变体）跑完整流程。"""
+    t0 = datetime.now()
+    submission = out_root / "submission"
+    work = out_root / "_work"
 
     jdir = submission / "journals" / cfg.id
     jdir.mkdir(parents=True, exist_ok=True)
@@ -331,6 +396,7 @@ def run_pipeline(
     result_json = {
         "journal": cfg.id,
         "format": fmt,
+        "variant": variant,
         "input": input_desc,
         "main_file": str(out_main),
         "changes": changes.to_list(),
@@ -429,4 +495,5 @@ def run_pipeline(
             "result": str(jdir / "result.json"),
         },
         "issues": bag_after.to_list(),
+        "variant": variant,
     }

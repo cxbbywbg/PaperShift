@@ -240,17 +240,11 @@ def cmd_convert(args) -> int:
     return 0
 
 
-def cmd_run(args) -> int:
-    log = _log(args)
-    from sci_core.pipeline import run_pipeline
-
-    res = run_pipeline(
-        args.input, args.journal or "", args.output, args.cwd,
-        make_pdf=not args.no_pdf, log=log,
-        template=getattr(args, "template", None),
-    )
+def _print_result(res, args, title: str = "") -> None:
     print()
     print("=" * 68)
+    if title:
+        print(f"版式        ：{title}")
     print(f"转投结果包：{res['submission_dir']}")
     print(f"目标期刊  ：{res.get('journal_id') or args.journal or '（仅官方模板）'}")
     print(f"转换后主文件：{res['main_file']}")
@@ -267,6 +261,25 @@ def cmd_run(args) -> int:
     print(f"              {res['reports']['diff']}")
     print(f"              {res['reports']['log']}")
     print("=" * 68)
+
+
+def cmd_run(args) -> int:
+    log = _log(args)
+    from sci_core.pipeline import run_pipeline
+
+    res = run_pipeline(
+        args.input, args.journal or "", args.output, args.cwd,
+        make_pdf=not args.no_pdf, log=log,
+        template=getattr(args, "template", None),
+    )
+    if res.get("multi"):
+        variants = res["variants"]
+        print()
+        print(f"模板包内有 {len(variants)} 份同族版式，已各产出一份结果包：")
+        for r in variants:
+            _print_result(r, args, title=r.get("variant") or "")
+        return 0 if all(r["qc_after"]["errors"] == 0 for r in variants) else 1
+    _print_result(res, args)
     return 0 if res["qc_after"]["errors"] == 0 else 1
 
 

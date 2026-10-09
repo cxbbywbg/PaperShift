@@ -472,7 +472,19 @@ def find_main_tex(project_dir: str | Path) -> str | None:
         except Exception:
             pass
     filtered = [p for p in candidates if p.stem not in referenced and p.name not in referenced]
-    return str((filtered or candidates)[0])
+    pool = filtered or candidates
+    # 多候选时按体积降序挑：作者的正文一定是包里最大的那个 .tex。
+    # 实测一份真实投稿包——正文 106.9 KB、审稿回复信 13.2 KB、标题页 2.9 KB。
+    # 这里原来退回**字母序**取第一个：主文件叫 draft_v3.tex 而包里另有
+    # Response_to_Reviewers.tex 时，大写字母的 ASCII 更小，会把回复信当正文。
+    def _size(x: Path) -> int:
+        try:
+            return x.stat().st_size
+        except OSError:
+            return 0
+
+    pool = sorted(pool, key=lambda x: (-_size(x), str(x)))
+    return str(pool[0])
 
 
 def resolve_include(name: str, root: Path, current: Path) -> Path | None:
