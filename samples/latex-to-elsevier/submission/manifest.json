@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "tool": "sci-paper-reformatter",
+  "version": "1.0.0",
+  "entries": [
+    {
+      "journal": "elsevier-generic",
+      "journal_name": "Elsevier 通用研究论文（Research Article）",
+      "journal_config": "D:\\WorkBuddy\\Sci-Trans\\assets\\journals\\elsevier-generic.yaml",
+      "journal_config_hash": "93ebedfe732599569a2a95b5d2a29b9566f6ebc6dcde023d21660a437f742ae1",
+      "journal_status": "needs_confirmation",
+      "input": "D:\\WorkBuddy\\Sci-Trans\\tests\\fixtures\\latex_demo",
+      "input_format": "latex",
+      "input_hash": "37c17df7b84184d8112f1ab7b96e5d1f619cbe97b92345bf7889673f2a350e9b",
+      "output_dir": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic",
+      "main_file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src\\main.tex",
+      "generated_at": "2026-10-09T15:04:47",
+      "tool_versions": {
+        "sci-paper-reformatter": "1.0.0",
+        "python": "3.13.14",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python-docx": "1.2.0",
+        "PyYAML": "6.0.3",
+        "tex": false,
+        "docx_to_pdf": false,
+        "latex_engine": ""
+      },
+      "conversion_params": {
+        "docx_base": "safe",
+        "latex_documentclass": "elsarticle",
+        "ref_style": "numbered"
+      },
+      "qc_after": {
+        "errors": 5,
+        "warnings": 8,
+        "infos": 16,
+        "total": 29,
+        "pass": false,
+        "by_category": {
+          "参考文献": 10,
+          "图片": 5,
+          "文件完整性": 1,
+          "章节结构": 1,
+          "公式": 1,
+          "表格": 5,
+          "LaTeX 编译": 2,
+          "内容与元信息": 1,
+          "投稿声明": 2,
+          "摘要与篇幅": 1
+        }
+      },
+      "changes": 22,
+      "diff_identical": false,
+      "diff_conclusion": "正文内容未变；仅补入投稿声明占位（data_availability、funding，需作者补全）",
+      "pdf_preview": null
+    }
+  ],
+  "updated_at": "2026-10-09T15:04:48"
+}

@@ -1,0 +1,112 @@
+id: ieee-trans
+name: "IEEE Transactions（期刊论文）"
+publisher: IEEE
+issn: ""
+guide_url: "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/"
+retrieved: "2026-10-09"
+status: needs_confirmation
+notes: >-
+  按 IEEE Transactions 系列常见要求整理的**通用模板**。IEEE 各刊在篇幅、摘要词数上
+  差异较大，务必以目标期刊的 Information for Authors 为准。
+
+source_documents: []
+
+article_types:
+  - id: research-article
+    name: "Regular Paper"
+    required_sections: [abstract, introduction, conclusion]
+
+output:
+  formats: [docx, latex, pdf_preview]
+  docx:
+    base: safe
+    template: ""
+    caption_label_figure: "Fig."
+    caption_label_table: "TABLE"
+  latex:
+    documentclass: IEEEtran
+    class_options: [journal]
+    packages_add: [cite, amsmath, amssymb, graphicx]
+    packages_remove: [natbib, subcaption, caption, hyperref]
+    section_style: numbered
+    metadata:
+      title: "\\title{%value}"
+      author_line: "\\author{%name\\thanks{%affil}}"
+      abstract_env: abstract
+      keywords_command: "\\begin{IEEEkeywords}%value\\end{IEEEkeywords}"
+    bibliography:
+      tool: bibtex
+      style: IEEEtran
+    declarations: {}
+
+layout:
+  columns: 2
+  page: A4
+  margin_cm: {top: 1.9, bottom: 2.3, left: 1.6, right: 1.6}
+  body_font: {latin: "Times New Roman", eastasia: "宋体", size_pt: 10}
+  heading_font: {latin: "Times New Roman", eastasia: "黑体", size_pt: 10}
+  line_spacing: 1.0
+  paragraph_space_after_pt: 0
+
+abstract:
+  max_words: 250
+  structured: false
+  required_labels: []
+  keywords_min: 3
+  keywords_max: 8
+
+body:
+  max_words: 12000
+  heading_levels_max: 3
+  section_numbering: true
+  note: "IEEE 正文常用罗马数字编号（I. II. III.），转换时保留原编号体系"
+
+figures:
+  formats: [pdf, eps, png, tiff]
+  min_dpi_photo: 300
+  min_dpi_line: 600
+  max_width_cm: 8.8
+  caption_position: below
+  caption_label: "Fig."
+  subfigure_label: "(a)"
+
+tables:
+  caption_position: above
+  caption_label: "TABLE"
+  max_width_cm: 8.8
+  style: "三线表，表题大写罗马数字编号"
+  footnotes_required: true
+
+equations:
+  numbering: continuous
+  editable_required: true
+
+references:
+  style: numbered
+  style_name: "IEEE"
+  max_refs: 100
+  doi_required: false
+  bibtex_style: IEEEtran
+  biblatex_style: ieee
+
+declarations:
+  required: [funding, conflict_of_interest]
+  optional: [author_contributions, data_availability, ethics]
+
+rule_sources:
+  layout.columns:
+    url: "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/"
+    note: "IEEE Transactions 正文为双栏排版"
+    verified: needs_confirmation
+  figures.max_width_cm:
+    url: "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/"
+    note: "双栏正文中单栏图片最大宽度约 3.5 英寸（8.8 cm）"
+    verified: needs_confirmation
+  abstract.max_words:
+    url: "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/"
+    note: "IEEE 摘要通常 150–250 词"
+    verified: needs_confirmation
+  references.style:
+    url: "https://journals.ieeeauthorcenter.ieee.org/create-your-ieee-journal-article/authoring-tools-and-templates/"
+    note: "IEEE 采用编号制，按正文出现顺序编号"
+    verified: needs_confirmation

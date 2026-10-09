@@ -1,0 +1,87 @@
+%%
+%% =====================================================================
+%%  elsarticle 结构骨架
+%% =====================================================================
+%%  ⚠️  这不是 Elsevier 官方模板原件，而是按 elsarticle.cls 的**必需结构**
+%%      写成的骨架，用途有两个：
+%%        1. 作者手头没有下载官方模板时，也能生成结构正确、可直接编译的稿件；
+%%        2. 作为「模板模式」的最小可用示例。
+%%
+%%      投正式期刊前，请用你从 Elsevier 官网下载的模板主文件替换它：
+%%        python scripts/sci.py run 你的稿件 --journal elsevier-generic \
+%%               --template /path/to/elsarticle-template-num.tex
+%% =====================================================================
+%%
+\documentclass[preprint,12pt]{elsarticle}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\journal{[待作者填写：目标期刊名]}
+% [sci-trans] 以下导言区命令来自原稿：模板未提供，但正文依赖它们
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{lineno}
+\newcommand{\method}{Adaptive Spectral Truncation (AST)}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\begin{frontmatter}
+\title{Adaptive Spectral Truncation for Low-Power Edge Inference of Convolutional Networks}
+
+% [sci-trans] 模板示例作者/单位命令（保留备查）：
+% \author[aff1]{Template Author}
+% \ead{template.author@example.com}
+% \affiliation[aff1]{organization={Template Institution}, city={City}, country={Country}}
+% [sci-trans] 按目标模板命令体系重新生成的作者/单位：
+\affiliation[aff1]{School of Automation, Harbin Institute of Technology, Harbin 150001, China}
+\affiliation[aff2]{Peng Cheng Laboratory, Shenzhen 518055, China}
+\affiliation[aff3]{Department of Electrical Engineering, University of Melbourne, Parkville, VIC 3010, Australia}
+\author[aff1]{Wei Zhang}
+\author[aff1,aff2]{Li Chen}
+\author[aff3]{Marcus Hale}
+
+\begin{abstract}
+Background: Deploying convolutional neural networks on battery-powered edge devices is
+limited by the energy cost of dense matrix multiplication.
+Methods: We introduce \method{}, which estimates the spectral decay of each layer's
+weight matrix at calibration time and truncates the trailing singular subspace.
+Results: On CIFAR-10 and ImageNet-100 subsets, AST reduces multiply--accumulate operations
+by 41.7\% while losing 0.6 percentage points of top-1 accuracy.
+Conclusions: AST is complementary to quantization and can be stacked with 8-bit
+post-training quantization for an additional 1.9$\times$ energy reduction.
+\end{abstract}
+
+\begin{keyword}
+edge inference \sep model compression \sep spectral methods \sep convolutional neural networks \sep energy efficiency
+\end{keyword}
+\end{frontmatter}
+
+\input{sections/intro}
+\input{sections/method}
+\input{sections/results}
+\input{sections/discussion}
+
+\section*{Declaration of Competing Interest}
+The authors declare that they have no known competing financial interests or personal
+relationships that could have appeared to influence the work reported in this paper.
+
+% [sci-trans] 目标期刊强制要求的声明（内容需作者填写）
+\section*{Funding}
+[待作者填写]
+\section*{Data Availability Statement}
+[待作者填写]
+
+\bibliographystyle{elsarticle-num}
+\bibliography{refs}
+
+\end{document}
+
+\endinput

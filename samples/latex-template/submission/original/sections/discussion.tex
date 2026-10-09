@@ -1,0 +1,19 @@
+\section{Discussion}
+\label{sec:discussion}
+
+The closed-form rank in Equation~\eqref{eq:rank} assumes that the singular spectrum is
+stationary across calibration batches. This holds for the layers we examined but fails
+for the first convolutional layer, where the input distribution shifts with the
+data augmentation policy. Practitioners should therefore exclude the stem layer from
+automatic truncation.
+
+Our results also suggest a limitation: AST is orthogonal to architectural search
+\citep{tan2019efficientnet}, and the two were not combined here. This is left for
+future work, as discussed in Section~\ref{sec:missing}.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented \method{}, a calibration-time spectral truncation scheme for low-power edge
+inference. AST reduces MAC operations by 41.7\% on ResNet-18 with a 0.6 percentage point
+accuracy loss, requires no retraining, and composes with post-training quantization.

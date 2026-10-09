@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "tool": "sci-paper-reformatter",
+  "version": "1.0.0",
+  "entries": [
+    {
+      "journal": "template-only",
+      "journal_name": "仅按官方模板转换（manuscript.docx）",
+      "journal_config": "",
+      "journal_config_hash": "",
+      "journal_status": "needs_confirmation",
+      "input": "D:\\WorkBuddy\\Sci-Trans\\tests\\fixtures\\docx_demo\\manuscript.docx",
+      "input_format": "docx",
+      "input_hash": "156f6caaf534ec97f9f6a0b96f4d53444d94031a92bc87b038b66a37184d918f",
+      "output_dir": "D:\\WorkBuddy\\Sci-Trans\\samples\\docx-template\\submission\\journals\\template-only",
+      "main_file": "D:\\WorkBuddy\\Sci-Trans\\samples\\docx-template\\submission\\journals\\template-only\\manuscript_formatted.docx",
+      "generated_at": "2026-10-09T15:04:49",
+      "tool_versions": {
+        "sci-paper-reformatter": "1.0.0",
+        "python": "3.13.14",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python-docx": "1.2.0",
+        "PyYAML": "6.0.3",
+        "tex": false,
+        "docx_to_pdf": false,
+        "latex_engine": ""
+      },
+      "conversion_params": {
+        "docx_base": "template",
+        "latex_documentclass": "",
+        "ref_style": "numbered"
+      },
+      "qc_after": {
+        "errors": 2,
+        "warnings": 1,
+        "infos": 4,
+        "total": 7,
+        "pass": false,
+        "by_category": {
+          "参考文献": 3,
+          "图片": 1,
+          "Word 文档": 1,
+          "内容与元信息": 2
+        }
+      },
+      "changes": 5,
+      "diff_identical": true,
+      "diff_conclusion": "无（仅版式/格式发生变化）",
+      "pdf_preview": null
+    }
+  ],
+  "updated_at": "2026-10-09T15:04:50"
+}

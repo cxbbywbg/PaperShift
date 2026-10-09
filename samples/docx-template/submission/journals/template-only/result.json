@@ -1,0 +1,267 @@
+{
+  "journal": "template-only",
+  "format": "docx",
+  "input": "Word 文档（manuscript.docx）",
+  "main_file": "D:\\WorkBuddy\\Sci-Trans\\samples\\docx-template\\submission\\journals\\template-only\\manuscript_formatted.docx",
+  "changes": [
+    {
+      "kind": "章节结构",
+      "target": "图片（第 1 张）",
+      "before": "原文档内嵌图片",
+      "after": "image1.png",
+      "reason": "跨文档移植时图片关系无法直接复制，已用提取出的图片重建（保留原显示宽度 14 cm）",
+      "file": "manuscript.docx",
+      "line": 0,
+      "rule_source": {},
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "图片（第 2 张）",
+      "before": "原文档内嵌图片",
+      "after": "image2.png",
+      "reason": "跨文档移植时图片关系无法直接复制，已用提取出的图片重建（保留原显示宽度 12 cm）",
+      "file": "manuscript.docx",
+      "line": 0,
+      "rule_source": {},
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "图片（第 3 张）",
+      "before": "原文档内嵌图片",
+      "after": "image3.png",
+      "reason": "跨文档移植时图片关系无法直接复制，已用提取出的图片重建（保留原显示宽度 9 cm）",
+      "file": "manuscript.docx",
+      "line": 0,
+      "rule_source": {},
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "图片（第 4 张）",
+      "before": "原文档内嵌图片",
+      "after": "image4.png",
+      "reason": "跨文档移植时图片关系无法直接复制，已用提取出的图片重建（保留原显示宽度 12 cm）",
+      "file": "manuscript.docx",
+      "line": 0,
+      "rule_source": {},
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "文档骨架",
+      "before": "manuscript.docx",
+      "after": "manuscript.docx",
+      "reason": "以期刊官方 Word 模板为骨架，原稿内容逐段移植",
+      "file": "",
+      "line": 0,
+      "rule_source": {},
+      "auto": true,
+      "needs_author": false
+    }
+  ],
+  "qc_before": {
+    "errors": 2,
+    "warnings": 1,
+    "infos": 4,
+    "total": 7,
+    "pass": false,
+    "by_category": {
+      "参考文献": 3,
+      "图片": 1,
+      "Word 文档": 1,
+      "内容与元信息": 2
+    }
+  },
+  "qc_after": {
+    "errors": 2,
+    "warnings": 1,
+    "infos": 4,
+    "total": 7,
+    "pass": false,
+    "by_category": {
+      "参考文献": 3,
+      "图片": 1,
+      "Word 文档": 1,
+      "内容与元信息": 2
+    }
+  },
+  "issues": [
+    {
+      "level": "error",
+      "code": "REF001",
+      "category": "参考文献",
+      "message": "引用了不存在的文献键：ref3",
+      "location": {
+        "section": "sec:1",
+        "object": "cit:ref3"
+      },
+      "rule_source": {},
+      "suggestion": "在 .bib 中补上该条目，或修正 \\cite 的键名。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "error",
+      "code": "REF040",
+      "category": "参考文献",
+      "message": "编号制引用中，正文引用的键在文末文献表里不存在：ref3",
+      "location": {
+        "object": "refs"
+      },
+      "rule_source": {},
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "warning",
+      "code": "FIG050",
+      "category": "图片",
+      "message": "第 4 图（无 label）在正文中没有任何引用",
+      "location": {
+        "file": "manuscript_formatted.docx",
+        "line": 31,
+        "section": "sec:3",
+        "object": "fig:4（第 4 图）"
+      },
+      "rule_source": {},
+      "suggestion": "期刊普遍要求每个图在正文中被显式提及（如 “as shown in Fig. 2”）。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "DOC006",
+      "category": "Word 文档",
+      "message": "参考文献列表由普通文本解析（4/4 条），不是 Word 结构化文献字段",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\docx-template\\submission\\journals\\template-only\\manuscript_formatted.docx"
+      },
+      "rule_source": {},
+      "suggestion": "普通文本的文献条目自动转换容易误判，请在报告中标为「需人工确认」的条目上逐条核对。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "MET003",
+      "category": "内容与元信息",
+      "message": "3 位作者未能识别到单位标记",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\docx-template\\submission\\journals\\template-only\\manuscript_formatted.docx"
+      },
+      "rule_source": {},
+      "suggestion": "换模板时需要作者与单位的对应关系，请人工核对。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "CFG001",
+      "category": "内容与元信息",
+      "message": "期刊配置「仅按官方模板转换（manuscript.docx）」尚未逐条核对官方指南，本次转换的规范依据需要人工复核",
+      "location": {
+        "file": "template-only"
+      },
+      "rule_source": {
+        "journal": "仅按官方模板转换（manuscript.docx）",
+        "field": "status",
+        "verified": "needs_confirmation",
+        "source_url": ""
+      },
+      "suggestion": "请打开官方 Guide for Authors 核对配置，核对完成后把配置里的 status 改为 verified。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF030",
+      "category": "参考文献",
+      "message": "4 条参考文献是从普通文本中解析的，需要人工确认",
+      "location": {
+        "object": "共 4 条"
+      },
+      "rule_source": {},
+      "suggestion": "Word 里若文献不是结构化字段而是普通文本，自动转换可能误判。请对照原文核对这几条的作者、年份与期刊名。",
+      "auto_fixed": false,
+      "evidence": "LeCun Y, Bengio Y, Hinton G. Deep learning. Nature. 2015;521；He K, Zhang X, Ren S, Sun J. Deep residual learning for imag；Jacob B, Kligys S, Chen B, et al. Quantization and training "
+    }
+  ],
+  "diff": {
+    "label_before": "原稿",
+    "label_after": "转换稿(template-only)",
+    "identical": true,
+    "metadata": {},
+    "declarations": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 2,
+      "count_after": 2
+    },
+    "figures": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 4,
+      "count_after": 4
+    },
+    "tables": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 2,
+      "count_after": 2
+    },
+    "equations": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 1,
+      "count_after": 1
+    },
+    "citations": {
+      "added": [],
+      "removed": [],
+      "count_before": 4,
+      "count_after": 4
+    },
+    "references": {
+      "added": [],
+      "removed": [],
+      "count_before": 4,
+      "count_after": 4
+    },
+    "crossrefs": {
+      "added": [],
+      "removed": [],
+      "count_before": 9,
+      "count_after": 9
+    },
+    "stats": {},
+    "notes": [],
+    "body_changed": false,
+    "declarations_only_added": false,
+    "sections_summary": {
+      "added": [],
+      "removed": [],
+      "changed_count": 0,
+      "unchanged_count": 8
+    }
+  },
+  "pdf": {
+    "available": false,
+    "reason": "未检测到 LibreOffice(soffice) 或 pandoc，无法把 Word 转成 PDF 预览",
+    "pdf": null
+  },
+  "manifest": {
+    "generated_at": "2026-10-09T15:04:49",
+    "duration_sec": 0.8
+  }
+}

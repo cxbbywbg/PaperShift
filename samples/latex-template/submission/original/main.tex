@@ -1,0 +1,52 @@
+\documentclass[11pt,twocolumn]{article}
+
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{lineno}
+
+\newcommand{\method}{Adaptive Spectral Truncation (AST)}
+\DeclareMathOperator*{\argmin}{arg\,min}
+
+\graphicspath{{figures/}}
+
+\title{Adaptive Spectral Truncation for Low-Power Edge Inference of Convolutional Networks}
+\author{Wei Zhang\affil{1} \and Li Chen\affil{1,2} \and Marcus Hale\affil{3}}
+\affiliation{1}{School of Automation, Harbin Institute of Technology, Harbin 150001, China}
+\affiliation{2}{Peng Cheng Laboratory, Shenzhen 518055, China}
+\affiliation{3}{Department of Electrical Engineering, University of Melbourne, Parkville, VIC 3010, Australia}
+\keywords{edge inference, model compression, spectral methods, convolutional neural networks, energy efficiency}
+\runningtitle{Running head: Adaptive Spectral Truncation}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Background: Deploying convolutional neural networks on battery-powered edge devices is
+limited by the energy cost of dense matrix multiplication.
+Methods: We introduce \method{}, which estimates the spectral decay of each layer's
+weight matrix at calibration time and truncates the trailing singular subspace.
+Results: On CIFAR-10 and ImageNet-100 subsets, AST reduces multiply--accumulate operations
+by 41.7\% while losing 0.6 percentage points of top-1 accuracy.
+Conclusions: AST is complementary to quantization and can be stacked with 8-bit
+post-training quantization for an additional 1.9$\times$ energy reduction.
+\end{abstract}
+
+\input{sections/intro}
+\input{sections/method}
+\input{sections/results}
+\input{sections/discussion}
+
+\section*{Declaration of Competing Interest}
+The authors declare that they have no known competing financial interests or personal
+relationships that could have appeared to influence the work reported in this paper.
+
+\bibliographystyle{unsrtnat}
+\bibliography{refs}
+
+\end{document}

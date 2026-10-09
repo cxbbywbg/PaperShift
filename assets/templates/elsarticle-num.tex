@@ -1,0 +1,52 @@
+%%
+%% =====================================================================
+%%  elsarticle 结构骨架
+%% =====================================================================
+%%  ⚠️  这不是 Elsevier 官方模板原件，而是按 elsarticle.cls 的**必需结构**
+%%      写成的骨架，用途有两个：
+%%        1. 作者手头没有下载官方模板时，也能生成结构正确、可直接编译的稿件；
+%%        2. 作为「模板模式」的最小可用示例。
+%%
+%%      投正式期刊前，请用你从 Elsevier 官网下载的模板主文件替换它：
+%%        python scripts/sci.py run 你的稿件 --journal elsevier-generic \
+%%               --template /path/to/elsarticle-template-num.tex
+%% =====================================================================
+%%
+\documentclass[preprint,12pt]{elsarticle}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\journal{[待作者填写：目标期刊名]}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Template title placeholder}
+
+\author[aff1]{Template Author}
+\ead{template.author@example.com}
+\affiliation[aff1]{organization={Template Institution}, city={City}, country={Country}}
+
+\begin{abstract}
+Template abstract placeholder.
+\end{abstract}
+
+\begin{keyword}
+keyword one \sep keyword two \sep keyword three
+\end{keyword}
+
+\end{frontmatter}
+
+\section{Introduction}
+Template body placeholder.
+
+\bibliographystyle{elsarticle-num}
+\bibliography{refs}
+
+\end{document}
+
+\endinput

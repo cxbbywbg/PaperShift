@@ -1,0 +1,47 @@
+%%
+%% 测试用「官方模板」夹具 —— 结构与 Elsevier elsarticle 模板同构，
+%% 但文档类名不同，用来验证「换一个模板仍然能正确移植」。
+%% 真实的 elsarticle-template-num.tex 结构与此一致。
+%%
+\documentclass[preprint,12pt]{myjournal}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+
+\journal{Journal of Test Fixtures}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Official template placeholder title}
+
+\author[1]{Placeholder Author}
+\ead{placeholder@example.com}
+\affiliation[1]{Placeholder Institution, Placeholder City, Placeholder Country}
+
+\begin{abstract}
+This abstract comes from the official template and must be replaced by the
+manuscript abstract.
+\end{abstract}
+
+\begin{keyword}
+placeholder one \sep placeholder two
+\end{keyword}
+
+\end{frontmatter}
+
+\section{Introduction}
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. This body text belongs
+to the official template and must be replaced by the manuscript body.
+
+\section{Methods}
+Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+
+\bibliographystyle{myjournal-num}
+\bibliography{refs}
+
+\end{document}
+
+\endinput

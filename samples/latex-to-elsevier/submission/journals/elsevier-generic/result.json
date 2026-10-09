@@ -1,0 +1,980 @@
+{
+  "journal": "elsevier-generic",
+  "format": "latex",
+  "input": "LaTeX 项目（主文件 main.tex）",
+  "main_file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src\\main.tex",
+  "changes": [
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{siunitx}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage{siunitx}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{hyperref}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage{hyperref}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{natbib}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage[numbers,sort&compress]{natbib}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{caption}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage{caption}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{subcaption}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage{subcaption}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "\\usepackage{lineno}",
+      "before": "(模板未加载)",
+      "after": "\\usepackage{lineno}",
+      "reason": "原稿正文依赖该宏包，目标模板未加载；已补入以保证结果可编译",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "原稿自定义宏/设置",
+      "before": "",
+      "after": "\\newcommand{\\method}{Adaptive Spectral Truncation (AST)}",
+      "reason": "原稿正文依赖该定义，目标模板中没有；已带入导言区（位置在 \\begin{document} 之前）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "原稿自定义宏/设置",
+      "before": "",
+      "after": "\\DeclareMathOperator*{\\argmin}{arg\\,min}",
+      "reason": "原稿正文依赖该定义，目标模板中没有；已带入导言区（位置在 \\begin{document} 之前）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "导言区",
+      "target": "原稿自定义宏/设置",
+      "before": "",
+      "after": "\\graphicspath{{figures/}}",
+      "reason": "原稿正文依赖该定义，目标模板中没有；已带入导言区（位置在 \\begin{document} 之前）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.base",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "标题",
+      "before": "",
+      "after": "Adaptive Spectral Truncation for Low-Power Edge Inference of Convolutional Networks",
+      "reason": "套用目标模板的 \\title 命令（标题文字取自原稿，未改写）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata.title",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "单位 1",
+      "before": "",
+      "after": "School of Automation, Harbin Institute of Technology, Harbin 150001, China",
+      "reason": "按目标模板的 \\affiliation 命令重新生成（原命令保留在注释中）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "单位 2",
+      "before": "",
+      "after": "Peng Cheng Laboratory, Shenzhen 518055, China",
+      "reason": "按目标模板的 \\affiliation 命令重新生成（原命令保留在注释中）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "单位 3",
+      "before": "",
+      "after": "Department of Electrical Engineering, University of Melbourne, Parkville, VIC 3010, Australia",
+      "reason": "按目标模板的 \\affiliation 命令重新生成（原命令保留在注释中）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "作者列表",
+      "before": "",
+      "after": "3 位作者",
+      "reason": "按目标模板的 \\author 命令重新生成（原命令保留在注释中）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": true
+    },
+    {
+      "kind": "元信息",
+      "target": "关键词",
+      "before": "",
+      "after": "edge inference, model compression, spectral methods, convolutional neural networks, energy efficiency",
+      "reason": "按目标模板的关键词命令重新生成",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "元信息",
+      "target": "作者/单位命令区",
+      "before": "\\author[aff1]{Template Author} \\ead{template.author@example.com} \\affiliation[aff1]{organization={Template Institution}, city={City}, country={Country}}",
+      "after": "\\affiliation[aff1]{School of Automation, Harbin Institute of Technology, Harbin 150001, China} \\affiliation[aff2]{Peng Cheng Laboratory, Shenzhen 518055, China} \\affiliation[aff3]{",
+      "reason": "目标模板使用自己的作者/单位命令体系；已按模板重建，示例内容完整保留在注释中",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": true
+    },
+    {
+      "kind": "元信息",
+      "target": "摘要",
+      "before": "",
+      "after": "Background: Deploying convolutional neural networks on battery-powered edge devices is\nlimited by the energy cost of den…",
+      "reason": "套用目标模板的摘要环境（摘要文字取自原稿，未改写）",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.metadata.abstract_env",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "文献区",
+      "before": "模板示例文献",
+      "after": "保留模板的文献命令，指向原稿文献库",
+      "reason": "目标模板的文献命令（\\bibliographystyle/\\bibliography）被保留",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.template",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "投稿声明",
+      "target": "Funding",
+      "before": "(缺失)",
+      "after": "[待作者填写]",
+      "reason": "目标期刊要求该声明，原稿中没有；已插入占位段落，内容必须由作者补全",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "url": "https://www.elsevier.com/journals/information-for-authors",
+        "note": "Elsevier 要求 Declaration of Competing Interest 与 Data Availability Statement",
+        "verified": "needs_confirmation",
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "declarations.required",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": true
+    },
+    {
+      "kind": "投稿声明",
+      "target": "Data Availability Statement",
+      "before": "(缺失)",
+      "after": "[待作者填写]",
+      "reason": "目标期刊要求该声明，原稿中没有；已插入占位段落，内容必须由作者补全",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "url": "https://www.elsevier.com/journals/information-for-authors",
+        "note": "Elsevier 要求 Declaration of Competing Interest 与 Data Availability Statement",
+        "verified": "needs_confirmation",
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "declarations.required",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": true
+    },
+    {
+      "kind": "导言区",
+      "target": "期刊配置要求的宏包",
+      "before": "lineno",
+      "after": "(未强制添加)",
+      "reason": "模板模式以官方模板的导言区为准；模板已声明的宏包不重复添加，以免选项冲突。若模板缺少某必需宏包，请手动补入。",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.packages_add",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    },
+    {
+      "kind": "章节结构",
+      "target": "文档骨架",
+      "before": "main.tex",
+      "after": "elsarticle-num.tex",
+      "reason": "以期刊官方 LaTeX 模板为骨架，原稿内容移植进去；模板的 documentclass 与宏包体系保持不变",
+      "file": "main.tex",
+      "line": 0,
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "output.latex.template",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "auto": true,
+      "needs_author": false
+    }
+  ],
+  "qc_before": {
+    "errors": 5,
+    "warnings": 10,
+    "infos": 15,
+    "total": 30,
+    "pass": false,
+    "by_category": {
+      "参考文献": 10,
+      "图片": 5,
+      "文件完整性": 1,
+      "章节结构": 1,
+      "公式": 1,
+      "投稿声明": 4,
+      "表格": 5,
+      "LaTeX 编译": 1,
+      "内容与元信息": 1,
+      "摘要与篇幅": 1
+    }
+  },
+  "qc_after": {
+    "errors": 5,
+    "warnings": 8,
+    "infos": 16,
+    "total": 29,
+    "pass": false,
+    "by_category": {
+      "参考文献": 10,
+      "图片": 5,
+      "文件完整性": 1,
+      "章节结构": 1,
+      "公式": 1,
+      "表格": 5,
+      "LaTeX 编译": 2,
+      "内容与元信息": 1,
+      "投稿声明": 2,
+      "摘要与篇幅": 1
+    }
+  },
+  "issues": [
+    {
+      "level": "error",
+      "code": "REF040",
+      "category": "参考文献",
+      "message": "编号制引用中，正文引用的键在文末文献表里不存在：frankle2019lottery",
+      "location": {
+        "object": "refs"
+      },
+      "rule_source": {},
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "error",
+      "code": "REF001",
+      "category": "参考文献",
+      "message": "引用了不存在的文献键：frankle2019lottery",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 9,
+        "section": "sec:3.1",
+        "object": "cit:frankle2019lottery"
+      },
+      "rule_source": {},
+      "suggestion": "在 .bib 中补上该条目，或修正 \\cite 的键名。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "error",
+      "code": "FIG001",
+      "category": "图片",
+      "message": "找不到图片文件：figures/ablation.png",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 43,
+        "section": "sec:3.2",
+        "object": "fig:4（第 4 图）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "figures.formats",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "确认图片是否随稿件一并提交，或路径是否正确。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "error",
+      "code": "LTX020",
+      "category": "文件完整性",
+      "message": "图片文件缺失：figures/ablation.png",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 43,
+        "section": "sec:3.2",
+        "object": "fig:4"
+      },
+      "rule_source": {},
+      "suggestion": "确认文件是否漏打包，或路径与 \\graphicspath 是否一致。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "error",
+      "code": "LTX005",
+      "category": "章节结构",
+      "message": "\\ref{sec:missing} 指向不存在的标签",
+      "location": {
+        "file": "sections/discussion.tex",
+        "line": 12,
+        "section": "sec:discussion",
+        "object": "sec:missing"
+      },
+      "rule_source": {},
+      "suggestion": "检查该 label 是否拼写错误，或对应对象是否被删除。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "warning",
+      "code": "EQ040",
+      "category": "公式",
+      "message": "编号公式 2（eq:retained）未被正文引用",
+      "location": {
+        "file": "sections/method.tex",
+        "line": 23,
+        "section": "sec:2.2",
+        "object": "eq:2"
+      },
+      "rule_source": {},
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "warning",
+      "code": "REF010",
+      "category": "参考文献",
+      "message": "文献条目未被正文引用：bengio2013estimating",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src\\refs.bib",
+        "object": "ref:bengio2013estimating"
+      },
+      "rule_source": {},
+      "suggestion": "未引用的条目不会出现在参考文献表中，确认是否漏引或可删除。",
+      "auto_fixed": false,
+      "evidence": "Estimating or Propagating Gradients Through Stochastic Neurons for Conditional Computation"
+    },
+    {
+      "level": "warning",
+      "code": "REF020",
+      "category": "参考文献",
+      "message": "文献 zhang2016accelerating（inproceedings）缺少必填字段：booktitle",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src\\refs.bib",
+        "object": "ref:zhang2016accelerating"
+      },
+      "rule_source": {},
+      "suggestion": "目标期刊的参考文献样式通常要求这些字段完整。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "warning",
+      "code": "FIG020",
+      "category": "图片",
+      "message": "有效分辨率不足：约 359 dpi（目标要求 线条图 ≥ 1000 dpi）",
+      "location": {
+        "file": "sections/method.tex",
+        "line": 34,
+        "section": "sec:2.2",
+        "object": "fig:1（第 1 图）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "figures.min_dpi_line",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "注意 DPI 数值不能单独决定质量：需要按最终印刷尺寸重新导出，线条图建议重新生成矢量版本或提高导出分辨率。",
+      "auto_fixed": false,
+      "evidence": "pipeline.png：2400×1200 px，印刷宽度约 17.0cm（未指定宽度，按正文栏宽 17.0cm 估算），颜色数≈14 → 判定为线条图"
+    },
+    {
+      "level": "warning",
+      "code": "FIG020",
+      "category": "图片",
+      "message": "有效分辨率不足：约 467 dpi（目标要求 线条图 ≥ 1000 dpi）",
+      "location": {
+        "file": "sections/method.tex",
+        "line": 43,
+        "section": "sec:2.2",
+        "object": "fig:2（第 2 图）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "figures.min_dpi_line",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "注意 DPI 数值不能单独决定质量：需要按最终印刷尺寸重新导出，线条图建议重新生成矢量版本或提高导出分辨率。",
+      "auto_fixed": false,
+      "evidence": "sensitivity.png：1500×1100 px，印刷宽度约 8.16cm（\\includegraphics[width=0.48\\linewidth] × 栏宽 17.0cm），颜色数≈16 → 判定为线条图"
+    },
+    {
+      "level": "warning",
+      "code": "FIG020",
+      "category": "图片",
+      "message": "有效分辨率不足：约 45 dpi（目标要求 线条图 ≥ 1000 dpi）",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 36,
+        "section": "sec:3.2",
+        "object": "fig:3（第 3 图）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "figures.min_dpi_line",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "注意 DPI 数值不能单独决定质量：需要按最终印刷尺寸重新导出，线条图建议重新生成矢量版本或提高导出分辨率。",
+      "auto_fixed": false,
+      "evidence": "energy.png：300×180 px，印刷宽度约 17.0cm（未指定宽度，按正文栏宽 17.0cm 估算），颜色数≈82 → 判定为线条图"
+    },
+    {
+      "level": "warning",
+      "code": "FIG050",
+      "category": "图片",
+      "message": "第 3 图（fig:energy）在正文中没有任何引用",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 36,
+        "section": "sec:3.2",
+        "object": "fig:3（第 3 图）"
+      },
+      "rule_source": {},
+      "suggestion": "期刊普遍要求每个图在正文中被显式提及（如 “as shown in Fig. 2”）。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "warning",
+      "code": "TAB020",
+      "category": "表格",
+      "message": "第 2 表有 6 列",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 18,
+        "section": "sec:3.2",
+        "object": "tab:2（第 2 表）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "tables.max_width_cm",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "列数较多时建议：拆表、缩小字号、改为跨栏排版，或在 LaTeX 中使用 \\small / \\resizebox（须符合期刊规定）。",
+      "auto_fixed": false,
+      "evidence": "6 行 × 6 列"
+    },
+    {
+      "level": "info",
+      "code": "LTX040",
+      "category": "LaTeX 编译",
+      "message": "检测到 2 个自定义宏，换模板时可能不兼容",
+      "location": {
+        "file": "main.tex"
+      },
+      "rule_source": {},
+      "suggestion": "若目标模板未定义这些宏，需要在导言区保留定义或改为标准命令。",
+      "auto_fixed": false,
+      "evidence": "\\newcommand{\\method}{Adaptive Spectral T；\\DeclareMathOperator*{\\argmin}{arg\\,min}"
+    },
+    {
+      "level": "info",
+      "code": "LTX100",
+      "category": "LaTeX 编译",
+      "message": "未执行编译：未检测到 TeX 发行版（pdflatex / xelatex / lualatex / latexmk）",
+      "location": {
+        "file": "main.tex"
+      },
+      "rule_source": {},
+      "suggestion": "静态检查已完成。若需要 PDF 预览与真实的编译错误/警告，请安装 TeX 发行版（TeX Live 或 MiKTeX）后重跑。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "CFG001",
+      "category": "内容与元信息",
+      "message": "期刊配置「Elsevier 通用研究论文（Research Article）」尚未逐条核对官方指南，本次转换的规范依据需要人工复核",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\assets\\journals\\elsevier-generic.yaml"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "status",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "请打开官方 Guide for Authors 核对配置，核对完成后把配置里的 status 改为 verified。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 han2015learning 缺少 DOI",
+      "location": {
+        "object": "ref:han2015learning"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 hinton2015distilling 缺少 DOI",
+      "location": {
+        "object": "ref:hinton2015distilling"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 denton2014exploiting 缺少 DOI",
+      "location": {
+        "object": "ref:denton2014exploiting"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 krizhevsky2009learning 缺少 DOI",
+      "location": {
+        "object": "ref:krizhevsky2009learning"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 tan2019efficientnet 缺少 DOI",
+      "location": {
+        "object": "ref:tan2019efficientnet"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "REF021",
+      "category": "参考文献",
+      "message": "文献 bengio2013estimating 缺少 DOI",
+      "location": {
+        "object": "ref:bengio2013estimating"
+      },
+      "rule_source": {},
+      "suggestion": "越来越多的期刊要求参考文献提供 DOI。",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "DEC002",
+      "category": "投稿声明",
+      "message": "目标期刊建议提供作者贡献声明（author_contributions），当前稿件没有",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "declarations.optional",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "DEC002",
+      "category": "投稿声明",
+      "message": "目标期刊建议提供伦理声明（ethics），当前稿件没有",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "declarations.optional",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "ABS002",
+      "category": "摘要与篇幅",
+      "message": "摘要仅 82 词，明显短于上限 300 词，可能信息量不足",
+      "location": {
+        "file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-to-elsevier\\submission\\journals\\elsevier-generic\\src"
+      },
+      "rule_source": {
+        "url": "https://www.elsevier.com/journals/information-for-authors",
+        "note": "多数期刊摘要上限 250–300 词，需按目标期刊确认",
+        "verified": "needs_confirmation",
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "abstract.max_words",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "TAB023",
+      "category": "表格",
+      "message": "第 1 表含 1 条表注，请核对统计符号说明是否完整",
+      "location": {
+        "file": "sections/method.tex",
+        "line": 55,
+        "section": "sec:2.3",
+        "object": "tab:1（第 1 表）"
+      },
+      "rule_source": {},
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "TAB030",
+      "category": "表格",
+      "message": "第 1 表需符合「三线表（无竖线）」要求",
+      "location": {
+        "file": "sections/method.tex",
+        "line": 55,
+        "section": "sec:2.3",
+        "object": "tab:1（第 1 表）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "tables.style",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "TAB023",
+      "category": "表格",
+      "message": "第 2 表含 1 条表注，请核对统计符号说明是否完整",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 18,
+        "section": "sec:3.2",
+        "object": "tab:2（第 2 表）"
+      },
+      "rule_source": {},
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    },
+    {
+      "level": "info",
+      "code": "TAB030",
+      "category": "表格",
+      "message": "第 2 表需符合「三线表（无竖线）」要求",
+      "location": {
+        "file": "sections/results.tex",
+        "line": 18,
+        "section": "sec:3.2",
+        "object": "tab:2（第 2 表）"
+      },
+      "rule_source": {
+        "journal": "Elsevier 通用研究论文（Research Article）",
+        "field": "tables.style",
+        "verified": "needs_confirmation",
+        "source_url": "https://www.elsevier.com/journals/information-for-authors"
+      },
+      "suggestion": "",
+      "auto_fixed": false,
+      "evidence": ""
+    }
+  ],
+  "diff": {
+    "label_before": "原稿",
+    "label_after": "转换稿(elsevier-generic)",
+    "identical": false,
+    "metadata": {},
+    "declarations": {
+      "added": [
+        "data_availability",
+        "funding"
+      ],
+      "removed": [],
+      "changed": [],
+      "count_before": 1,
+      "count_after": 3
+    },
+    "figures": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 4,
+      "count_after": 4
+    },
+    "tables": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 2,
+      "count_after": 2
+    },
+    "equations": {
+      "added": [],
+      "removed": [],
+      "changed": [],
+      "count_before": 3,
+      "count_after": 3
+    },
+    "citations": {
+      "added": [],
+      "removed": [],
+      "count_before": 12,
+      "count_after": 12
+    },
+    "references": {
+      "added": [],
+      "removed": [],
+      "count_before": 12,
+      "count_after": 12
+    },
+    "crossrefs": {
+      "added": [],
+      "removed": [],
+      "count_before": 10,
+      "count_after": 10
+    },
+    "stats": {},
+    "notes": [
+      "转换过程自动补入了 2 条投稿声明占位（data_availability、funding），正文内容为 `[待作者填写]`，需作者补全。"
+    ],
+    "body_changed": false,
+    "declarations_only_added": true,
+    "sections_summary": {
+      "added": [],
+      "removed": [],
+      "changed_count": 0,
+      "unchanged_count": 12
+    }
+  },
+  "pdf": {
+    "available": false,
+    "reason": "未检测到 TeX 发行版（pdflatex / xelatex / lualatex / latexmk）",
+    "pdf": null
+  },
+  "manifest": {
+    "generated_at": "2026-10-09T15:04:47",
+    "duration_sec": 0.9
+  }
+}

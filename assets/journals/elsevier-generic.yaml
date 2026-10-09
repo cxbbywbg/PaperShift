@@ -1,0 +1,133 @@
+id: elsevier-generic
+name: "Elsevier 通用研究论文（Research Article）"
+publisher: Elsevier
+issn: ""
+guide_url: "https://www.elsevier.com/journals/information-for-authors"
+retrieved: "2026-10-09"
+status: needs_confirmation
+notes: >-
+  这是按 Elsevier 常见投稿要求整理的**通用模板**，不是某一本具体期刊的官方规范。
+  使用前请把 guide_url 换成目标期刊的 Guide for Authors，逐条核对后把 status 改为 verified。
+
+source_documents: []
+
+article_types:
+  - id: research-article
+    name: "Research Article"
+    required_sections: [abstract, introduction, methods, results, discussion, conclusion]
+
+output:
+  formats: [docx, latex, pdf_preview]
+  docx:
+    base: safe
+    template: ""
+    caption_label_figure: "Fig."
+    caption_label_table: "Table"
+  latex:
+    # Elsevier 的 elsarticle 文档类要求元信息必须包在
+    # \begin{frontmatter}...\end{frontmatter} 里，仅改 \documentclass
+    # 会生成一份编译不过的稿件，所以这里走「模板模式」。
+    # 投正式期刊时用 --template 指向官网下载的模板主文件即可覆盖。
+    base: template
+    template: "assets/templates/elsarticle-num.tex"
+    documentclass: elsarticle
+    class_options: [preprint, 12pt]
+    packages_add: [lineno]
+    packages_remove: []
+    section_style: numbered
+    metadata:
+      title: "\\title{%value}"
+      author_line: "\\author[%affil_key]{%name}"
+      affiliation: "\\affiliation[%key]{%value}"
+      abstract_env: abstract
+      keywords_command: "\\begin{keyword}%value\\end{keyword}"
+      keyword_sep: " \\sep "
+    bibliography:
+      tool: bibtex
+      style: elsarticle-num
+    # 若目标期刊的文档类提供了专用的声明环境（如 \begin{funding}），
+    # 可在此按 kind 配置；未配置时统一用 \section*{}，任何文档类都能编译。
+    declarations: {}
+
+layout:
+  columns: 1
+  page: A4
+  margin_cm: {top: 2.5, bottom: 2.5, left: 2.5, right: 2.5}
+  body_font: {latin: "Times New Roman", eastasia: "宋体", size_pt: 12}
+  heading_font: {latin: "Times New Roman", eastasia: "黑体", size_pt: 12}
+  line_spacing: 2.0
+  paragraph_space_after_pt: 0
+
+abstract:
+  max_words: 300
+  structured: false
+  required_labels: [Background, Methods, Results, Conclusions]
+  keywords_min: 3
+  keywords_max: 6
+
+body:
+  max_words: 10000
+  heading_levels_max: 3
+  section_numbering: true
+
+figures:
+  formats: [tiff, eps, pdf, png, jpeg]
+  min_dpi_photo: 300
+  min_dpi_line: 1000
+  max_width_cm: 17.0
+  caption_position: below
+  caption_label: "Fig."
+  subfigure_label: "(a)"
+
+tables:
+  caption_position: above
+  caption_label: "Table"
+  max_width_cm: 17.0
+  style: "三线表（无竖线）"
+  footnotes_required: true
+
+equations:
+  numbering: continuous
+  editable_required: true
+
+references:
+  style: numbered
+  style_name: "Elsevier - Vancouver"
+  max_refs: 100
+  doi_required: true
+  bibtex_style: elsarticle-num
+  biblatex_style: ""
+
+declarations:
+  required: [funding, conflict_of_interest, data_availability]
+  optional: [author_contributions, ethics]
+
+rule_sources:
+  layout.columns:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "通用研究论文通常接受单栏双倍行距稿件，最终排版由编辑部完成"
+    verified: needs_confirmation
+  layout.line_spacing:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "投稿稿件普遍要求 double-spaced"
+    verified: needs_confirmation
+  abstract.max_words:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "多数期刊摘要上限 250–300 词，需按目标期刊确认"
+    verified: needs_confirmation
+  figures.min_dpi_photo:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "照片类图像最低 300 dpi，线条图 1000 dpi"
+    verified: needs_confirmation
+  figures.caption_label:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "图题以 Fig. 开头"
+    verified: needs_confirmation
+  references.style:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "Elsevier 默认采用编号制（Vancouver 风格）"
+    verified: needs_confirmation
+  declarations.required:
+    url: "https://www.elsevier.com/journals/information-for-authors"
+    note: "Elsevier 要求 Declaration of Competing Interest 与 Data Availability Statement"
+    verified: needs_confirmation

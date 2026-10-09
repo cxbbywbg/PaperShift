@@ -1,0 +1,28 @@
+\section{Introduction}
+\label{sec:intro}
+
+Convolutional neural networks (CNNs) have become the default architecture for
+perception on embedded platforms \citep{lecun2015deep,he2016deep}. However, the
+energy budget of a battery-powered node is dominated by the multiply--accumulate
+(MAC) operations of dense convolutions \citep{horowitz2014computing}.
+
+Prior work reduces this cost through pruning \citep{han2015learning}, quantization
+\citep{jacob2018quantization}, and knowledge distillation \citep{hinton2015distilling}.
+Spectral methods have received less attention, although the singular value spectrum
+of a trained convolution kernel is strongly low-rank in practice
+\citep{denton2014exploiting,zhang2016accelerating}.
+
+\subsection{Contributions}
+The contributions of this paper are threefold:
+
+\begin{itemize}
+  \item We propose \method{}, a calibration-time spectral truncation scheme that
+        requires no retraining and no change to the inference kernel.
+  \item We show that the optimal truncation rank follows a closed-form expression
+        derived from the noise floor of the calibration set (Section~\ref{sec:method}).
+  \item We demonstrate a 41.7\% reduction in MAC operations with a 0.6 percentage
+        point accuracy loss on two datasets (Section~\ref{sec:results}).
+\end{itemize}
+
+Our approach differs from low-rank factorization \citep{zhang2016accelerating} in that
+we do not materialize the factored weights; the truncation is applied as a mask.

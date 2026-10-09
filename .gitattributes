@@ -1,0 +1,11 @@
+# 统一换行符为 LF：本项目有 LaTeX 夹具与逐字比对，CRLF 会干扰测试
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.docx binary
+*.pdf binary

@@ -1,0 +1,112 @@
+id: springer-generic
+name: "Springer 通用研究论文"
+publisher: Springer
+issn: ""
+guide_url: "https://www.springer.com/gp/livingreviews/latex-templates"
+retrieved: "2026-10-09"
+status: needs_confirmation
+notes: >-
+  按 Springer 常见投稿要求整理的**通用模板**。Springer 各刊差异较大，
+  且部分期刊要求结构式摘要（structured abstract），务必核对目标期刊说明。
+
+source_documents: []
+
+article_types:
+  - id: research-article
+    name: "Original Article"
+    required_sections: [abstract, introduction, methods, results, discussion, conclusion]
+
+output:
+  formats: [docx, latex, pdf_preview]
+  docx:
+    base: safe
+    template: ""
+    caption_label_figure: "Fig."
+    caption_label_table: "Table"
+  latex:
+    documentclass: svjour3
+    class_options: []
+    packages_add: [graphicx, amsmath, natbib]
+    packages_remove: [subcaption]
+    section_style: numbered
+    metadata:
+      title: "\\title{%s}"
+      author_line: "\\author{%name}"
+      affiliation: "\\institute{%value}"
+      abstract_env: abstract
+      keywords_command: "\\keywords{%value}"
+    bibliography:
+      tool: bibtex
+      style: spbasic
+    declarations: {}
+
+layout:
+  columns: 1
+  page: A4
+  margin_cm: {top: 2.5, bottom: 2.5, left: 2.5, right: 2.5}
+  body_font: {latin: "Times New Roman", eastasia: "宋体", size_pt: 12}
+  heading_font: {latin: "Arial", eastasia: "黑体", size_pt: 12}
+  line_spacing: 1.5
+  paragraph_space_after_pt: 6
+
+abstract:
+  max_words: 250
+  structured: false
+  required_labels: [Background, Methods, Results, Conclusions]
+  keywords_min: 4
+  keywords_max: 6
+
+body:
+  max_words: 8000
+  heading_levels_max: 3
+  section_numbering: true
+
+figures:
+  formats: [tiff, eps, pdf, png]
+  min_dpi_photo: 300
+  min_dpi_line: 1200
+  max_width_cm: 16.0
+  caption_position: below
+  caption_label: "Fig."
+  subfigure_label: "(a)"
+
+tables:
+  caption_position: above
+  caption_label: "Table"
+  max_width_cm: 16.0
+  style: "三线表"
+  footnotes_required: true
+
+equations:
+  numbering: continuous
+  editable_required: true
+
+references:
+  style: numbered
+  style_name: "Springer Basic (Vancouver)"
+  max_refs: 80
+  doi_required: true
+  bibtex_style: spbasic
+  biblatex_style: ""
+
+declarations:
+  required: [funding, conflict_of_interest, data_availability, ethics]
+  optional: [author_contributions]
+
+rule_sources:
+  layout.columns:
+    url: "https://www.springer.com/gp/livingreviews/latex-templates"
+    note: "Springer 多数期刊接受单栏投稿稿件"
+    verified: needs_confirmation
+  figures.min_dpi_line:
+    url: "https://www.springer.com/gp/livingreviews/latex-templates"
+    note: "线条图建议 1200 dpi，组合图 600 dpi，照片 300 dpi"
+    verified: needs_confirmation
+  references.style:
+    url: "https://www.springer.com/gp/livingreviews/latex-templates"
+    note: "Springer Basic 为编号制"
+    verified: needs_confirmation
+  declarations.required:
+    url: "https://www.springer.com/gp/livingreviews/latex-templates"
+    note: "Springer 要求 Funding、Competing Interests、Data Availability、Ethics 声明"
+    verified: needs_confirmation

@@ -1,0 +1,22 @@
+# 构建产物：dist/ 由 tools/install_skill.py 组装，可随时重建
+dist/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 临时工作目录（流水线中间产物，跑一次就会重新生成）
+_work/
+
+# AI 助手工作目录（本机状态与记忆，不进仓库）
+.workbuddy-ai/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini

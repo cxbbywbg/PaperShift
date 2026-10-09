@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "tool": "sci-paper-reformatter",
+  "version": "1.0.0",
+  "entries": [
+    {
+      "journal": "template-only",
+      "journal_name": "仅按官方模板转换（elsarticle-num.tex）",
+      "journal_config": "",
+      "journal_config_hash": "",
+      "journal_status": "needs_confirmation",
+      "input": "D:\\WorkBuddy\\Sci-Trans\\tests\\fixtures\\latex_demo",
+      "input_format": "latex",
+      "input_hash": "37c17df7b84184d8112f1ab7b96e5d1f619cbe97b92345bf7889673f2a350e9b",
+      "output_dir": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-template\\submission\\journals\\template-only",
+      "main_file": "D:\\WorkBuddy\\Sci-Trans\\samples\\latex-template\\submission\\journals\\template-only\\src\\main.tex",
+      "generated_at": "2026-10-09T15:04:45",
+      "tool_versions": {
+        "sci-paper-reformatter": "1.0.0",
+        "python": "3.13.14",
+        "platform": "Windows-11-10.0.26300-SP0",
+        "python-docx": "1.2.0",
+        "PyYAML": "6.0.3",
+        "tex": false,
+        "docx_to_pdf": false,
+        "latex_engine": ""
+      },
+      "conversion_params": {
+        "docx_base": "template",
+        "latex_documentclass": "",
+        "ref_style": "numbered"
+      },
+      "qc_after": {
+        "errors": 5,
+        "warnings": 5,
+        "infos": 11,
+        "total": 21,
+        "pass": false,
+        "by_category": {
+          "参考文献": 10,
+          "图片": 2,
+          "文件完整性": 1,
+          "章节结构": 1,
+          "公式": 1,
+          "表格": 3,
+          "LaTeX 编译": 2,
+          "内容与元信息": 1
+        }
+      },
+      "changes": 19,
+      "diff_identical": true,
+      "diff_conclusion": "无（仅版式/格式发生变化）",
+      "pdf_preview": null
+    }
+  ],
+  "updated_at": "2026-10-09T15:04:46"
+}
