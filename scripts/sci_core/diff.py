@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 from pathlib import Path
 
 from . import model as M
@@ -17,6 +18,32 @@ from .util import normalize_ws, truncate
 
 def _sec_key(s: M.Section) -> str:
     return s.number or s.heading.strip().lower()
+
+
+# 单位信息的两种写法：
+#   CAS 式：`organization={School of Automation, GDUT}, city={Guangzhou}, country={China}`
+#   Springer 式：`\orgdiv{School of Automation}, \orgname{GDUT}, \city{Guangzhou}, \country{China}`
+# 内容等价，只是命令体系不同。直接比字符串会把「换个写法」误报成「单位被改了」。
+_AFFIL_KV_RE = re.compile(
+    r"\b(?:organization|organisation|institution|department|division|"
+    r"street|address|city|town|postcode|zip|state|province|country)\s*=\s*")
+_AFFIL_CMD_RE = re.compile(
+    r"\\(?:orgdiv|orgname|orgaddress|organization|organisation|institution|"
+    r"department|division|street|address|city|town|postcode|zip|state|"
+    r"province|country|affil|affiliation)\s*")
+
+
+def _canon_affil(text: str) -> str:
+    """把单位信息归一成「内容」，忽略命令体系与 `key=` 写法的差异。
+
+    剥掉 `key=` 前缀与已知命令名，去掉花括号与空字段后按逗号重组。
+    `\postcode{}` 这类空字段不会在结果里留下多余的 `, ,`。
+    """
+    t = _AFFIL_KV_RE.sub("", text or "")
+    t = _AFFIL_CMD_RE.sub("", t)
+    t = t.replace("{", " ").replace("}", " ")
+    segs = [normalize_ws(s) for s in t.split(",")]
+    return ", ".join(s for s in segs if s)
 
 
 def conclusion_text(d: dict) -> str:
@@ -86,10 +113,14 @@ def diff_manuscripts(before: M.Manuscript, after: M.Manuscript,
         }
     aff_a = before.metadata.affiliations
     aff_b = after.metadata.affiliations
-    if aff_a != aff_b:
+    # 比「内容」而不是「写法」：CAS 的 key=value 与 Springer 的 \orgdiv/\city
+    # 内容相同时不该报成「单位被改了」。
+    canon_a = " | ".join(_canon_affil(a) for a in aff_a)
+    canon_b = " | ".join(_canon_affil(a) for a in aff_b)
+    if canon_a != canon_b:
         md["affiliations"] = {
             "label": "单位", "before": " | ".join(aff_a), "after": " | ".join(aff_b),
-            "ratio": _ratio(" | ".join(aff_a), " | ".join(aff_b)),
+            "ratio": _ratio(canon_a, canon_b),
         }
     out["metadata"] = md
 

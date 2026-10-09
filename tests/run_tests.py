@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from sci_core import docx_parse, journal as J, latex_parse, refs as refs_mod  # noqa: E402
 from sci_core.changes import ChangeLog  # noqa: E402
-from sci_core.diff import diff_manuscripts, render_diff_md  # noqa: E402
+from sci_core.diff import _canon_affil, diff_manuscripts, render_diff_md  # noqa: E402
 from sci_core.pipeline import run_pipeline  # noqa: E402
 from sci_core.qc import run_qc, summarize  # noqa: E402
 from sci_core.util import Log  # noqa: E402
@@ -1198,9 +1198,13 @@ def test_cas_draft_style() -> None:
     check("CAS：跨行宏定义整条搬运（含第二行的 \\node）",
           "\\newcommand*\\circled[1]" in mig and "\\node[shape=circle" in mig,
           mig.strip()[:200])
-    check("CAS：转换后仍能解析出标题/摘要/25 个章节级别的内容",
-          bool(res.get("diff_conclusion")) and "正文内容未变" in res.get("diff_conclusion", ""),
-          str(res.get("diff_conclusion")))
+    d = res.get("diff") or {}
+    ss = d.get("sections_summary") or {}
+    check("CAS：转换后正文逐字未变（章节无增删改，元信息也无实质差异）",
+          res.get("diff_identical") is True
+          and not ss.get("added") and not ss.get("removed")
+          and not ss.get("changed_count") and not (d.get("metadata") or {}),
+          f"{res.get('diff_conclusion')} | {ss} | {list((d.get('metadata') or {}).keys())}")
     check("CAS：只有通讯作者带 \\author* 星号",
           "\\author*[aff1]{\\fnm{Bo} \\sur{Liu}}" in t
           and "\\author*[aff2]" not in t
@@ -1214,6 +1218,18 @@ def test_cas_draft_style() -> None:
     check("CAS：与正文无关的独立文档被 LTX050 报出（不让作者把模板说明书投出去）",
           any(i.get("code") == "LTX050" for i in res.get("issues", [])),
           str(sorted({i.get("code") for i in res.get("issues", [])})))
+    # 单位只是换了命令体系（CAS 的 key=value → Springer 的 \orgdiv/\city），
+    # 内容完全一致。差异报告若按字符串比会报「单位被改了」，把作者吓一跳。
+    check("CAS：单位归一化后两种写法等价（不再误报「单位被改了」）",
+          _canon_affil("organization={School of Automation, GDUT}, "
+                       "city={Guangzhou}, country={China}")
+          == _canon_affil("\\orgdiv{School of Automation}, \\orgname{GDUT}, "
+                          "\\orgaddress{\\city{Guangzhou}, \\postcode{}, \\country{China}}"),
+          _canon_affil("organization={School of Automation, GDUT}, "
+                       "city={Guangzhou}, country={China}"))
+    check("CAS：转换后差异报告的元信息里不再出现「单位」变更",
+          "affiliations" not in ((res.get("diff") or {}).get("metadata") or {}),
+          str(list(((res.get("diff") or {}).get("metadata") or {}).keys())))
 
 
 def test_rule_binding() -> None:
