@@ -70,7 +70,8 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 模板模式的关键行为：
 
 - **模板的版式权威，原稿的内容权威。** 模板导言区原样保留；原稿正文逐字移植。
-- **原稿依赖的宏与宏包会一起带过去。** 模板没声明的 `\newcommand`、`\DeclareMathOperator`、`\usepackage` 会被补进导言区，否则正文里的自定义命令会直接编译失败；这些补入逐条记入转换记录。
+- **原稿依赖的宏与宏包会一起带过去 —— 但模板已有的不重复带。** 模板没声明的 `\newcommand`、`\DeclareMathOperator`、`\usepackage` 会被补进导言区，否则正文里的自定义命令会直接编译失败；这些补入逐条记入转换记录。判定「模板有没有」时**同时读模板主文件与它的 `.cls`/`.sty`** —— 期刊类常把 `natbib`、`\fnm`、`\theorem` 写在类文件里，只看主文件会重复带入，触发 `Option clash` / `already defined`。被注释掉的 `%\usepackage{...}` 不算依赖，不会被激活；自定义宏按花括号配平**整条**搬运，跨行定义不会被截成半句。
+- **正文里的原文档类专有命令会被注释保留**（如 Elsevier CAS 的 `\printcredits`，`sn-jnl.cls` 没有这个命令）。只在目标模板确实没定义、且它独占一行时才动手，并记 `CVT030`。
 - **模板里的示例内容整段清掉并注释保留**（示例作者、示例摘要、示例正文），可回溯。
 - **摘要/标题/关键词用 LaTeX 原文**，`\method{}`、`41.7\%`、`$1.9\times$` 不会被抹平。
 - **模板自带的文献样式优先**，与期刊配置不一致时提示人工确认，不静默覆盖。
@@ -82,7 +83,8 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 - **模板主文件按「命名分档 + 体积」挑**：`template`/`main`/`manuscript` 加分，`sample`/`example`/`doc`/`manual` 减分——官方 kit 里体积最大的常常是说明书（实测 CAS 包最大的合法文档是 18.5 KB 的 `elsdoc-cas.tex`，真模板只有 4.9 KB），只看体积会选错。**原稿侧相反**：作者的正文一定是包里最大的 `.tex`（实测是第二名的 8 倍），按体积挑、并排除被 `\input` 引用的文件。
 - **模板辅助文件按需复制**：主文件同目录下的 `.cls`/`.bst`/`.sty` 一律随包；图片与 `.bib` 只在模板主文件真的引用时才带 —— 官方 kit 里的 `sample.pdf`、`doc/`、`thumbnails/` 是示例资料，照单全收会让作者把样例一起投出去。
 - **元信息写法差异都认**：`\title[短]{长}`（取长标题）、命令式 `\abstract{...}`（Springer sn-jnl）与环境式 `\begin{abstract}`、`\keywords{a,b}` 与 `\begin{keyword}...\sep...`。
-- **作者信息在独立标题页时**：主文件没有 `\author` 才会去找同目录另一个 `.tex`，且**只认 `\title` 与主文件逐字相同的那一个**（同目录常有回复审稿人意见书等别的文档，不能见 `\author` 就用）。补入后写进转换记录。
+- **作者信息在独立标题页时**：主文件没有 `\author` 才会去找同目录另一个 `.tex`，且**只认 `\title` 与主文件逐字相同的那一个**（同目录常有回复审稿人意见书等别的文档，不能见 `\author` 就用）。补入后写进转换记录。**主文件已有作者但缺通讯邮箱时**，仍会去标题页**按姓名**回填邮箱（只补邮箱，不新增作者、不改名字/单位），来源记入 `email_source_file` —— 投稿系统几乎都强制要通讯邮箱。
+- **Elsevier 的 `\ead{}` / `\cormark` 写在 `\author{}` 外面**：邮箱与通讯标记都要单独采集。`\cormark`/`\corref` 决定换模板后谁带 `\author*` 星号；没有这类标记时才退化成「有邮箱即通讯作者」。`\affiliation[a]{organization={...}, city={...}, country={...}}` 是 key=value 写法，走结构化解析（不能按逗号切，`organization` 的值自身含逗号）。
 - **模板要求 research highlights 而原稿没有**：明确列进「需作者确认」，不留一堆空 `\item` 让作者自己发现。
 
 `--journal` 与 `--template` 的分工：**期刊配置提供"规则"（图片 DPI、声明要求、篇幅上限…），模板提供"结构"（文档类、命令体系、版式骨架）**。两个都给 = 规则 + 结构都齐；只给 `--template` = 只做结构移植，不做期刊规范判定（结果包目录名为 `template-only`）。

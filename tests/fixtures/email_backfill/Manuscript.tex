@@ -1,0 +1,74 @@
+%% 邮箱回填夹具 —— 主文件（作者**不带**邮箱，模拟 CAS/elsarticle 风格）
+\documentclass[11pt]{article}
+
+\usepackage{amsmath}
+
+\title{Explainability-Guided Partial Privileged Learning: A Class-Aware Weighted Similarity Approach}
+
+\author[aff1]{Bo Liu}
+\author[aff1]{Yunlong Sun}
+\author[aff2]{Yanshan Xiao}
+
+\affil[aff1]{School of Automation, Guangdong University of Technology, Guangzhou 510006, China}
+\affil[aff2]{School of Computer Science, Guangdong University of Technology, Guangzhou 510006, China}
+
+\keywords{partial privileged learning, explainable AI, SVM+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Learning Using Privileged Information (LUPI) enhances classifier performance by
+leveraging additional knowledge during training.
+\end{abstract}
+
+\section{Introduction}\label{introduction}
+
+Supervised learning has become a dominant paradigm in machine learning, largely
+due to the accessibility of labeled data in various domains. In practical
+scenarios, beyond standard labels, we often have access to a priori information
+associated with the training samples, which provides richer context for model
+interpretation \cite{vapnik2009new}. When a subset of samples lacks this
+privileged component, standard LUPI methods cannot be directly applied. We
+therefore study partial privileged learning and propose a class-aware weighted
+similarity strategy that imputes the missing privileged information while
+keeping the downstream classifier calibrated. The remainder of this paper is
+organised as follows. Section~\ref{method} describes the proposed framework,
+Section~\ref{experiments} reports the empirical study, and Section~\ref{conclusion}
+concludes. Our contributions are threefold: first, a formulation of partial
+privileged learning that does not assume complete privileged information;
+second, an explainability-guided mask estimator that separates discriminative
+features from background noise; third, a weighted similarity transfer that
+assigns confidence to each imputed privileged vector before it reaches the
+classifier. Together these components form a pipeline that is robust to
+severe privileged-information scarcity while remaining compatible with
+existing SVM+ solvers and requiring no additional annotation effort from
+domain experts in the loop.
+
+\section{Methodology}\label{method}
+
+We denote the training set by $\{(x_i, y_i)\}$ and the privileged features by
+$x_i^{*}$. The weighted cosine similarity between a query sample and a
+candidate sample is computed with respect to the class-conditional importance
+vector. Features with high discriminative power retain their weights, while
+irrelevant or noisy features are strictly suppressed. The resulting confidence
+coefficient modulates the influence of each imputed privileged vector on the
+SVM+ objective.
+
+\section{Experiments}\label{experiments}
+
+We evaluate the proposed method on Handwritten Digits, Caltech-101 and
+Animals with Attributes 2. Compared with representative baselines, the method
+improves classification accuracy and reduces the degradation caused by
+privileged-information scarcity.
+
+\section{Conclusion}\label{conclusion}
+
+We presented an explainability-guided framework for partial privileged
+learning. Future work will extend the framework to multi-modal settings.
+
+\begin{thebibliography}{9}
+\bibitem{vapnik2009new} V. Vapnik and A. Vashist. A new learning paradigm: learning using privileged information. Neural Networks, 2009.
+\end{thebibliography}
+
+\end{document}

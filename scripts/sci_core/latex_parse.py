@@ -305,6 +305,7 @@ def detex(text: str, keep_math: bool = True) -> str:
             opt = ""
             args: list[str] = []
             while cursor < n:
+                save = cursor
                 while cursor < n and t[cursor] in " \t\r\n":
                     cursor += 1
                 if cursor < n and t[cursor] == "[":
@@ -314,6 +315,10 @@ def detex(text: str, keep_math: bool = True) -> str:
                     inner, cursor = read_group(t, cursor, "{", "}")
                     args.append(inner)
                     continue
+                # 后面不是参数 → 回退到空格之前，把空格留给主循环输出。
+                # 不回退的话 `\fnm{Bo} \sur{Liu}` 会被拼成 `BoLiu`
+                # （Springer 的姓名就是这种写法，丢了空格会让差异报告误报）。
+                cursor = save
                 break
             if name in _TEXT_PASSTHROUGH and args:
                 out.append(detex(args[0], keep_math))
@@ -387,6 +392,133 @@ def _looks_like_footnote(text: str) -> bool:
     "Corresponding author. Email: ..." 的假 \affiliation。
     """
     return bool(_FOOTNOTE_LIKE_RE.match(text)) or "@" in text
+
+
+def _norm_author_name(s: str) -> str:
+    """作者姓名归一化：去 LaTeX 转义、抹平空白/标点、统一小写。
+
+    用于「主文件作者」与「标题页作者」按姓名配对回填邮箱。只做归一化，
+    不做姓/名换序 —— 换序会把 Bo Liu 和 Liu Bo 当同一人，风险大于收益。
+    """
+    s = detex(s or "")
+    s = re.sub(r"[\s~\-–—_.。·]+", " ", s)
+    return s.strip().lower()
+
+
+# `\author[a]{Bo Liu}` 的头部（含可选标签）。不能用 `\author` 裸匹配：
+# `\shortauthors{}`、`\authorrunning{}` 也会命中。
+_AUTHOR_HEAD_RE = re.compile(r"\\(?:author|Author)\s*(?:\[[^\]]*\])?\s*\{")
+
+
+def _author_contact_pairs(text: str) -> list[tuple[str, str, bool]]:
+    r"""按出现顺序返回 `(作者名, 邮箱, 是否通讯作者)`。
+
+    覆盖 Elsevier CAS / elsarticle 的写法 —— 邮箱与通讯标记都写在 `\author{}`
+    **外面**：
+
+        \author[a]{Bo Liu}\cormark[1]\ead{csbliu@gdut.edu.cn}\credit{...}
+        \author[a]{Yunlong Sun}\ead{2112404074@mail2.gdut.edu.cn}\credit{...}
+
+    `_parse_authors` 只看 `\author{}` 的参数，`\ead`/`\cormark` 都在参数之外，
+    所以两个字段都拿不到：邮箱丢了（投稿系统强制要），`\cormark` 丢了会让
+    每个作者都被当成通讯作者（`\author*` 满天飞）。这里按「一条 `\author`
+    到下一条 `\author` 之间」切段，段内找 `\ead{}` / `\email{}` 与 `\cormark` / `\corref`。
+    """
+    out: list[tuple[str, str, bool]] = []
+    heads = list(_AUTHOR_HEAD_RE.finditer(text))
+    for i, m in enumerate(heads):
+        # 读作者名（平衡花括号）
+        j, n, depth, buf = m.end(), len(text), 1, []
+        while j < n and depth:
+            ch = text[j]
+            if ch == "\\" and j + 1 < n:
+                buf.append(text[j:j + 2]); j += 2; continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    j += 1
+                    break
+            buf.append(ch); j += 1
+        name = normalize_ws(detex("".join(buf)))
+        if not name:
+            continue
+        seg_end = heads[i + 1].start() if i + 1 < len(heads) else len(text)
+        seg = text[j:seg_end]
+        em = re.search(r"\\(?:ead|email)\s*\{([^{}]*)\}", seg)
+        corr = bool(re.search(r"\\(?:cormark|corref|correspondingauthor)\b", seg))
+        out.append((name, (em.group(1).strip() if em else ""), corr))
+    return out
+
+
+_AFFIL_KV_VALUE_RE = re.compile(r"([A-Za-z][A-Za-z0-9]*)\s*=\s*\{")
+
+
+def _parse_affiliation_kv(text: str) -> dict | None:
+    r"""解析 elsarticle / Elsevier CAS 的 `key=value` 单位写法。
+
+        \affiliation[a]{organization={School of Automation, Guangdong University of Technology},
+                        city={Guangzhou},
+                        country={China}}
+
+    这种写法**不能按逗号切**：`organization` 的值自身就含逗号，按逗号切会把
+    它劈成两半、还把 `city={Guangzhou}` 塞进 `\country{}`（实测产出的单位行
+    是 `\orgdiv{organization={School of Automation}, \orgname{Guangdong ...}}`
+    这样的垃圾，同时 `country` 整条丢失）。
+
+    不是 `key=value` 写法则返回 None，交回启发式的 `_split_affiliation`。
+    """
+    pairs: dict[str, str] = {}
+    i, n = 0, len(text)
+    while i < n:
+        m = _AFFIL_KV_VALUE_RE.search(text, i)
+        if not m:
+            break
+        j, depth, buf = m.end(), 1, []
+        while j < n and depth:
+            ch = text[j]
+            if ch == "\\" and j + 1 < n:
+                buf.append(text[j:j + 2]); j += 2; continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    j += 1
+                    break
+            buf.append(ch); j += 1
+        pairs[m.group(1).lower()] = normalize_ws("".join(buf))
+        i = j
+    if not pairs:
+        return None
+
+    def pick(*names: str) -> str:
+        for k in names:
+            v = pairs.get(k)
+            if v:
+                return v
+        return ""
+
+    div = pick("orgdiv", "department", "division", "school")
+    name = pick("orgname", "institution", "university")
+    org = pick("organization", "organisation")
+    if org:
+        # `organization={School of Automation, Guangdong University of Technology}`
+        # → 第一段是院系、其余是学校名（与 Springer 模板 \orgdiv/\orgname 的分工一致）
+        segs = [s.strip() for s in re.split(r"[,，]", org) if s.strip()]
+        if len(segs) >= 2:
+            div = div or segs[0]
+            name = name or ", ".join(segs[1:])
+        else:
+            name = name or org
+    return {
+        "orgdiv": div,
+        "orgname": name,
+        "city": pick("city", "town"),
+        "postcode": pick("postcode", "postalcode", "zipcode", "zip"),
+        "country": pick("country"),
+    }
 
 
 def _collect_abstract(ms: M.Manuscript, raw: str) -> None:
@@ -638,6 +770,12 @@ class LatexParser:
                         key = normalize_ws(detex(" ".join(c.opt)))
                     if key:
                         ms.metadata.doc_meta.setdefault("affiliation_map", {})[key] = text
+                        # elsarticle/CAS 的 key=value 写法：结构化存下来，
+                        # 免得构建端按逗号瞎切（organization 的值自身含逗号）。
+                        parts = _parse_affiliation_kv(value)
+                        if parts:
+                            ms.metadata.doc_meta.setdefault(
+                                "affiliation_parts", {})[key] = parts
             elif c.name in ("keywords", "keyword", "keyWords"):
                 items = [normalize_ws(x) for x in re.split(r"\\sep|[,;]", c.arg) if normalize_ws(x)]
                 ms.metadata.keywords_raw.extend(items)
@@ -657,6 +795,20 @@ class LatexParser:
                 ms.metadata.doc_meta.setdefault("date", normalize_ws(detex(c.arg)))
 
         ms.metadata.doc_meta["graphicspath"] = list(graphics_paths)
+
+        # ---- 邮箱与通讯作者标记：Elsevier 写在 \author{} 之外 ----
+        # \author[a]{Bo Liu}\cormark[1]\ead{csbliu@gdut.edu.cn}
+        # `_parse_authors` 只看得到 `Bo Liu`，邮箱与通讯标记都在参数外面。
+        # 按姓名回填；通讯标记决定换模板后谁带 `\author*` 星号。
+        if ms.metadata.authors:
+            contacts = {_norm_author_name(nm): (em, corr)
+                        for nm, em, corr in _author_contact_pairs(body)}
+            for a in ms.metadata.authors:
+                em, corr = contacts.get(_norm_author_name(a.get("name", "")), ("", False))
+                if em and not a.get("email"):
+                    a["email"] = em
+                if corr:
+                    a["corresponding"] = True
 
         # ---- 环境：摘要 / 关键词 ----
         for env in envs:
@@ -692,6 +844,8 @@ class LatexParser:
         # ---- 独立标题页：盲审投稿常把作者/单位拆到单独文件 ----
         if not ms.metadata.authors:
             self._merge_title_page(ms, root, main, self.log)
+        else:
+            self._enrich_from_title_page(ms, root, main, self.log)
 
         # ---- 章节与块 ----
         self._build_sections(ms, body, cmds, envs, loc)
@@ -891,6 +1045,68 @@ class LatexParser:
                 f"{len(authors)} 位作者 / {len(ms.metadata.affiliations)} 个单位"
                 f"（\\title 与主文件逐字相同）"
             )
+            return
+
+    def _enrich_from_title_page(self, ms: M.Manuscript, root: Path, main: str,
+                                log: Log) -> None:
+        r"""主文件已有作者、但缺通讯邮箱时，从同项目的「标题页」把邮箱回填。
+
+        投稿系统几乎都要求通讯作者邮箱，而「邮箱」和「作者名单」经常不同源：
+        主文件里可能只写了 `\author[aff1]{Bo Liu}`，邮箱在 `Title_Page.tex` 的
+        `\author[1]{Bo Liu\thanks{Corresponding author. Email: a@b.c}}` 里。
+
+        只补**名字能对上**的邮箱，不新增作者、不改名字、不动单位；标题对不上
+        一律不碰（同目录常有回复信等别的文档）。
+        """
+        if not ms.metadata.authors:
+            return
+        if all(a.get("email") for a in ms.metadata.authors):
+            return          # 邮箱齐了，没必要动
+
+        want = self._norm_title(ms.metadata.title)
+        if not want:
+            return
+        main_path = Path(main).resolve()
+
+        for p in sorted(root.glob("*.tex")):
+            if p.resolve() == main_path:
+                continue
+            try:
+                text = read_text(p)
+            except OSError:
+                continue
+            if "\\author" not in text:
+                continue
+
+            other_title = ""
+            pool: list[dict] = []
+            for c in scan_commands(strip_comments(text)):
+                if c.name == "title" and not other_title:
+                    other_title = c.arg
+                elif c.name in ("author", "Author"):
+                    pool.extend(self._parse_authors(c.arg, c.opt))
+            if not pool or self._norm_title(other_title) != want:
+                continue
+
+            by_name: dict[str, str] = {}
+            for a in pool:
+                if a.get("email"):
+                    by_name.setdefault(_norm_author_name(a["name"]), a["email"])
+
+            filled: list[str] = []
+            for a in ms.metadata.authors:
+                if a.get("email"):
+                    continue
+                hit = by_name.get(_norm_author_name(a["name"]))
+                if hit:
+                    a["email"] = hit
+                    filled.append(a["name"])
+            if filled:
+                ms.metadata.doc_meta["email_source_file"] = rel(p, root)
+                log.step(
+                    f"主文件作者缺邮箱，已从同项目的 {p.name} 按姓名回填 "
+                    f"{len(filled)} 个邮箱（{'、'.join(filled)}）"
+                )
             return
 
     # ------------------------------------------------------------- 环境扫描
@@ -1346,7 +1562,18 @@ class LatexParser:
                         M.Declaration(kind=kind, present=True, text=normalize_ws(detex(c.arg)), span=loc(c.line))
                     )
         # 全文关键词扫描（兜底）
-        low = detex(body).lower()
+        # 先摘掉**前言命令的参数**再扫。CAS 的 `\credit{Funding acquisition}` 里
+        # 带 "funding" 一词，会被当成「已提供基金声明」；而 `\credit` 属于前言，
+        # 换模板时随元信息一起重写、不会进结果包的正文 → 报告就误报「丢失 funding」。
+        # 这类「幽灵声明」纯属扫描噪声，摘掉参数即可（扫描本就是兜底，宁可少报）。
+        scan_src = body
+        for cmd in ("credit", "ead", "cortext", "cormark", "fntext", "tnotetext",
+                    "tnotemark", "thanks", "affiliation", "affiliations", "affil",
+                    "institute", "address", "author", "authors", "keywords",
+                    "keyword", "keyWords", "title", "shorttitle", "shortauthors",
+                    "runningtitle", "markboth", "corref", "equalcont"):
+            scan_src = re.sub(r"\\" + cmd + r"\s*(?:\[[^\]]*\])?\s*\{[^{}]*\}", " ", scan_src)
+        low = detex(scan_src).lower()
         for hint, kind in DECLARATION_HINTS.items():
             if kind in found:
                 continue

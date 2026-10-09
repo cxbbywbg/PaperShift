@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from sci_core import docx_parse, journal as J, latex_parse, refs as refs_mod  # noqa: E402
+from sci_core.changes import ChangeLog  # noqa: E402
 from sci_core.diff import diff_manuscripts, render_diff_md  # noqa: E402
 from sci_core.pipeline import run_pipeline  # noqa: E402
 from sci_core.qc import run_qc, summarize  # noqa: E402
@@ -643,6 +644,77 @@ def test_main_tex_pick() -> None:
           Path(picked2).name if picked2 else "None")
 
 
+def test_springer_template() -> None:
+    r"""Springer Nature 模板（sn-jnl）的命令式元信息。
+
+    这套模板跟 Elsevier CAS 写法完全不同，踩过的坑**都会静默产出坏文件**：
+    `\author*`/`\affil*` 带星号、姓名要拆 `\fnm/\sur`、单位要拆
+    `\orgdiv/\orgname/\orgaddress`、摘要与关键词都是**命令式**（不是环境）、
+    `.bst` 放在 `bst/` 子目录。
+    """
+    print("\n== Springer Nature 模板（命令式元信息）==")
+    tpl_dir = ROOT / "tests" / "fixtures" / "springer_kit" / "sn-article-template"
+    res = run_pipeline(LATEX_FIX, "", OUT / "sn-tpl", cwd=ROOT,
+                       make_pdf=False, log=Log(verbose=False),
+                       template=str(tpl_dir / "sn-article.tex"))
+    src = Path(res["journal_dir"]) / "src"
+    t = (src / "main.tex").read_text(encoding="utf-8")
+
+    # 1) 花括号配平 —— \author* 不被识别时区间起点会落到 \email 上，把文件切坏
+    check("Springer 模板：转换稿花括号配平（\\author* 不再切坏 \\email）",
+          t.count("{") == t.count("}"),
+          f"{{={t.count('{')} }}={t.count('}')}")
+    # 2) 不能留下孤立的 \end{abstract}
+    check("Springer 模板：没有孤立的 \\end{abstract}",
+          t.count("\\begin{abstract}") == t.count("\\end{abstract}"),
+          f"begin={t.count('\\begin{abstract}')} end={t.count('\\end{abstract}')}")
+    # 3) 命令式摘要：模板示例摘要必须被换掉
+    check("Springer 模板：示例摘要被替换（命令式 \\abstract）",
+          "The abstract serves both as a general introduction" not in t
+          and "Deploying convolutional neural networks" in t)
+    # 4) 命令式关键词：模板示例关键词必须被换掉
+    check("Springer 模板：示例关键词被替换（命令式 \\keywords）",
+          "keyword1" not in t and "edge inference, model compression" in t)
+    # 5) 姓名拆成 \fnm/\sur
+    check("Springer 模板：姓名拆成 \\fnm{名} \\sur{姓}",
+          "\\fnm{Wei} \\sur{Zhang}" in t and "\\fnm{Marcus} \\sur{Hale}" in t)
+    # 6) 单位拆成 orgdiv/orgname/orgaddress
+    check("Springer 模板：单位拆成 \\orgdiv/\\orgname/\\orgaddress",
+          "\\orgdiv{School of Automation}" in t
+          and "\\orgname{Harbin Institute of Technology}" in t
+          and "\\city{Harbin}" in t and "\\postcode{150001}" in t
+          and "\\country{China}" in t)
+    # 7) 模板示例命令完整保留在注释里（可回溯）
+    check("Springer 模板：示例作者/单位命令完整保留在注释里",
+          "% \\author[2,3]{\\fnm{Second} \\sur{Author}}" in t
+          and "% \\affil[2]{\\orgdiv{Department}" in t)
+    # 8) bst/ 子目录里的 .bst 必须随包（编译必需）
+    check("Springer 模板：bst/ 子目录里的 .bst 随包复制（编译必需）",
+          (src / "bst" / "sn-mathphys-num.bst").is_file())
+    check("Springer 模板：主文件同目录的 .cls 随包复制",
+          (src / "sn-jnl.cls").is_file())
+    # 9) 结论不该说「检测到内容差异」——正文没动，只是元信息换了写法
+    check("Springer 模板：结论是「正文内容未变；元信息重新表示」",
+          "正文内容未变" in res.get("diff_conclusion", ""),
+          res.get("diff_conclusion", ""))
+    # 10) detex 不能把 \fnm{Bo} \sur{Liu} 拼成 BoLiu（会让差异报告误报）
+    check("detex 保留命令之间的空格（\\fnm{X} \\sur{Y} → X Y）",
+          latex_parse.detex(r"\fnm{Bo} \sur{Liu}") == "Bo Liu",
+          repr(latex_parse.detex(r"\fnm{Bo} \sur{Liu}")))
+    # 11) 类文件（.cls）里已加载的宏包不能重复带入 —— 否则
+    #     `Option clash for package natbib` 直接编译失败。
+    mig = ""
+    if "% [sci-trans] 以下导言区命令来自原稿" in t:
+        mig = t.split("% [sci-trans] 以下导言区命令来自原稿")[1].split("\\begin{document}")[0]
+    check("Springer 模板：.cls 已加载的 natbib/graphicx 不被重复带入",
+          "natbib" not in mig and "\\usepackage{graphicx}" not in mig,
+          mig.strip()[:160])
+    # 12) 模板没提供的自定义宏仍要带进来（不能一刀切全丢）
+    check("Springer 模板：模板没有的自定义宏仍被带入",
+          "\\newcommand{\\method}" in mig and "\\graphicspath" in mig,
+          mig.strip()[:160])
+
+
 # 真实投稿里踩过的元信息/文献区坑（Springer sn-jnl 原稿 + Elsevier CAS 模板）
 SNJ_MANUSCRIPT = r"""\documentclass[pdflatex,sn-mathphys-num]{snjtest}
 \usepackage{amsmath}
@@ -977,6 +1049,173 @@ def test_frontmatter_regression() -> None:
           not any(i.code == "FIG050" for i in bag_n.items), str(codes_n))
 
 
+def test_preamble_carry() -> None:
+    r"""导言区「补什么、不补什么」的判定。
+
+    回归背景（两条都是**静默产出坏文件**的真 bug）：
+
+    1. 原稿导言区里 `%\\usepackage[...]{natbib}` 这类「留档备查」的注释行极其
+       常见，照抄进结果就会凭空激活一条命令。
+    2. 判定「模板有没有加载这个宏包/定义这个命令」时只看模板主文件，漏掉
+       `.cls`/`.sty` —— 而期刊类恰恰把 `\\usepackage[numbers,sort&compress]{natbib}`、
+       `\\def\\fnm`、`\\newtheorem{theorem}` 全写在类文件里。于是原稿里的同名
+       `\\usepackage` / `\\providecommand` 被重复带入，轻则冗余，重则
+       `Option clash for package natbib` / `Command \\theorem already defined`
+       直接编译失败。
+    """
+    print("\n== 导言区补入判定（注释行 / 类文件已提供）==")
+    from sci_core.latex_build import _carry_preamble, _defined_name
+
+    tpl_dir = ROOT / "tests" / "fixtures" / "springer_kit" / "sn-article-template"
+    tpl_head = (tpl_dir / "sn-article.tex").read_text(encoding="utf-8").split(
+        "\\begin{document}")[0]
+    src_head = (
+        "\\documentclass{article}\n"
+        "%\\usepackage{stfloats}          % 注释掉的备查写法，不该被迁移\n"
+        "\\usepackage{natbib}             % 类文件已加载 -> 不带\n"
+        "\\usepackage{graphicx}           % 类文件已加载 -> 不带\n"
+        "\\usepackage{siunitx}            % 模板没有 -> 要带\n"
+        "\\providecommand{\\fnm}[1]{#1}   % 类文件已定义 -> 不带\n"
+        "\\newcommand{\\method}{AST}      % 模板没有 -> 要带\n"
+        "\\newtheorem{theorem}{Theorem}   % 类文件已定义 -> 不带\n"
+        "\\def\\tsc#1{\\textsc{#1}}        % 模板没有 -> 要带\n"
+        "\\graphicspath{{figures/}}\n"
+    )
+    cfg = J.from_template(tpl_dir / "sn-article.tex")
+    out = _carry_preamble(src_head, tpl_head, cfg, "main.tex", ChangeLog(), tpl_dir=tpl_dir)
+    mig = out.split("% [sci-trans] 以下导言区命令来自原稿")[1].split("\\begin{document}")[0]
+
+    check("注释掉的 \\usepackage 不被迁移（不凭空激活命令）",
+          "stfloats" not in mig, mig.strip()[:160])
+    check("类文件已加载的宏包不被重复带入（避免 option clash）",
+          "natbib" not in mig and "graphicx" not in mig, mig.strip()[:160])
+    check("模板没加载的宏包仍被带入", "\\usepackage{siunitx}" in mig, mig.strip()[:160])
+    check("类文件已定义的同名命令不被重复带入（避免 already defined）",
+          "\\providecommand{\\fnm}" not in mig and "\\newtheorem{theorem}" not in mig,
+          mig.strip()[:160])
+    check("模板没有的自定义宏仍被带入",
+          "\\newcommand{\\method}" in mig and "\\def\\tsc" in mig
+          and "\\graphicspath" in mig, mig.strip()[:160])
+    check("被定义命令名解析正确",
+          _defined_name(r"\def\tsc#1{}") == "tsc"
+          and _defined_name(r"\newcommand{\foo}[1]{}") == "foo"
+          and _defined_name(r"\DeclareMathOperator*{\argmin}{arg\,min}") == "argmin"
+          and _defined_name(r"\newtheorem{lemma}[theorem]{Lemma}") == "lemma"
+          and _defined_name(r"\graphicspath{{figures/}}") == "",
+          "")
+
+
+def test_email_backfill() -> None:
+    r"""主文件作者缺邮箱时，从同项目标题页按姓名回填。
+
+    回归背景：真实投稿里「作者名单」和「通讯邮箱」经常不同源 —— 主文件写
+    `\\author[aff1]{Bo Liu}`（如 elsarticle / CAS 风格），邮箱在独立
+    `Title_Page.tex` 的 `\\author[1]{Bo Liu\\thanks{Corresponding author. Email: ...}}`
+    里。原实现只在**主文件完全没有作者**时才读标题页，于是主文件一旦有作者
+    就再也不看标题页，通讯邮箱被静默丢掉 —— 而投稿系统几乎都强制要邮箱。
+    """
+    print("\n== 标题页邮箱回填 ==")
+    fix = ROOT / "tests" / "fixtures" / "email_backfill"
+    ms = latex_parse.parse_latex(fix, Log(verbose=False))
+    by_name = {a["name"]: a for a in ms.metadata.authors}
+    check("主文件作者被解析到（3 位）", len(ms.metadata.authors) == 3,
+          str([a["name"] for a in ms.metadata.authors]))
+    check("主文件里没有的邮箱从标题页按姓名回填",
+          by_name.get("Bo Liu", {}).get("email") == "csbliu@gdut.edu.cn",
+          str(by_name.get("Bo Liu")))
+    check("只回填有邮箱的那位，其余作者不被改动",
+          by_name.get("Yunlong Sun", {}).get("email") == ""
+          and by_name.get("Yanshan Xiao", {}).get("email") == "")
+    check("回填来源被记录下来（可追溯）",
+          ms.metadata.doc_meta.get("email_source_file") == "Title_Page.tex",
+          str(ms.metadata.doc_meta.get("email_source_file")))
+    # 反向：标题对不上就不该乱填（同目录常有回复信等别的文档）
+    alt = OUT / "email-backfill-mismatch"
+    alt.mkdir(parents=True, exist_ok=True)
+    (alt / "Manuscript.tex").write_text(
+        (fix / "Manuscript.tex").read_text(encoding="utf-8"),
+        encoding="utf-8", newline="\n")
+    (alt / "Title_Page.tex").write_text(
+        (fix / "Title_Page.tex").read_text(encoding="utf-8").replace(
+            "Explainability-Guided Partial Privileged Learning: A Class-Aware "
+            "Weighted Similarity Approach",
+            "A Completely Different Title About Something Else Entirely"),
+        encoding="utf-8", newline="\n")
+    ms2 = latex_parse.parse_latex(alt, Log(verbose=False))
+    check("标题对不上时绝不回填（防串稿）",
+          all(not a.get("email") for a in ms2.metadata.authors),
+          str([(a["name"], a.get("email")) for a in ms2.metadata.authors]))
+
+
+def test_cas_draft_style() -> None:
+    r"""Elsevier CAS 风格初稿（`\ead` / `\cormark` / key=value 单位 / 跨行宏）。
+
+    这四条都是**静默产出坏文件**的真 bug，而且第一条能把整篇稿子带崩：
+
+    1. 跨行 `\newcommand*\circled[1]{\\tikz[...]{` 被逐行搬运截成半句 →
+       未闭合 `{` → `scan_commands` 从这里起吞掉整个文件（实测：花括号
+       1297 vs 1295、25 节全变 0 节、标题/摘要/作者全部「未识别」、
+       70 个引用键被误报成「不存在」、77 个 errors）。
+    2. 邮箱写在 `\author{}` **外面**（`\ead{}`）→ 8 位作者的邮箱全丢。
+    3. 通讯标记 `\cormark[1]` 也在外面 → 要么全丢，要么修完 2 之后
+       「人人有邮箱」导致每位作者都被标 `\author*`。
+    4. `\affiliation[a]{organization={A, B}, city={C}, country={D}}` 按逗号切
+       → 产出 `\orgdiv{organization={A}, \orgname{B}}` 这种垃圾，`country` 整条丢失。
+    """
+    print("\n== Elsevier CAS 风格初稿 ==")
+    fix = ROOT / "tests" / "fixtures" / "cas_draft"
+    ms = latex_parse.parse_latex(fix, Log(verbose=False))
+    by_name = {a["name"]: a for a in ms.metadata.authors}
+
+    check("CAS：\\author{} 之外的 \\ead{} 邮箱被采集到",
+          by_name.get("Bo Liu", {}).get("email") == "csbliu@gdut.edu.cn"
+          and by_name.get("Yanshan Xiao", {}).get("email") == "xiaoyanshan@gdut.edu.cn",
+          str([(a["name"], a.get("email")) for a in ms.metadata.authors]))
+    check("CAS：\\cormark 通讯标记被识别（只有 Bo Liu）",
+          by_name.get("Bo Liu", {}).get("corresponding") is True
+          and not by_name.get("Yanshan Xiao", {}).get("corresponding"),
+          str([(a["name"], a.get("corresponding")) for a in ms.metadata.authors]))
+    parts = (ms.metadata.doc_meta.get("affiliation_parts") or {}).get("a", {})
+    check("CAS：key=value 单位被结构化解析（不按逗号瞎切）",
+          parts.get("orgdiv") == "School of Automation"
+          and parts.get("orgname") == "Guangdong University of Technology"
+          and parts.get("city") == "Guangzhou"
+          and parts.get("country") == "China",
+          str(parts))
+
+    res = run_pipeline(fix, "", OUT / "cas-draft", cwd=ROOT,
+                       make_pdf=False, log=Log(verbose=False),
+                       template=str(ROOT / "tests" / "fixtures" / "springer_kit"
+                                    / "sn-article-template" / "sn-article.tex"))
+    src = Path(res["journal_dir"]) / "src"
+    t = (src / "new-Manuscript.tex").read_text(encoding="utf-8")
+    mig = t.split("% [sci-trans] 以下导言区命令来自原稿")[1].split("\\begin{document}")[0] \
+        if "% [sci-trans] 以下导言区命令来自原稿" in t else ""
+
+    check("CAS：转换稿花括号配平（跨行 \\newcommand 不再被截断）",
+          t.count("{") == t.count("}"),
+          f"{{={t.count('{')} }}={t.count('}')}")
+    check("CAS：跨行宏定义整条搬运（含第二行的 \\node）",
+          "\\newcommand*\\circled[1]" in mig and "\\node[shape=circle" in mig,
+          mig.strip()[:200])
+    check("CAS：转换后仍能解析出标题/摘要/25 个章节级别的内容",
+          bool(res.get("diff_conclusion")) and "正文内容未变" in res.get("diff_conclusion", ""),
+          str(res.get("diff_conclusion")))
+    check("CAS：只有通讯作者带 \\author* 星号",
+          "\\author*[aff1]{\\fnm{Bo} \\sur{Liu}}" in t
+          and "\\author*[aff2]" not in t
+          and "\\author[aff2]{\\fnm{Yanshan} \\sur{Xiao}}" in t,
+          "\n".join(l for l in t.splitlines() if l.startswith("\\author")))
+    check("CAS：单位按 organization/city/country 字段落位（country 不再丢）",
+          "\\orgdiv{School of Automation}" in t
+          and "\\orgname{Guangdong University of Technology}" in t
+          and "\\city{Guangzhou}" in t and "\\country{China}" in t,
+          "\n".join(l for l in t.splitlines() if l.startswith("\\affil")))
+    check("CAS：与正文无关的独立文档被 LTX050 报出（不让作者把模板说明书投出去）",
+          any(i.get("code") == "LTX050" for i in res.get("issues", [])),
+          str(sorted({i.get("code") for i in res.get("issues", [])})))
+
+
 def test_rule_binding() -> None:
     """配置里的规则必须真的绑到检查上。
 
@@ -1062,7 +1301,8 @@ def main() -> int:
     for fn in (test_latex_parse, test_latex_qc, test_latex_convert_roundtrip,
                test_docx_parse, test_docx_convert, test_pipeline,
                test_template_mode, test_template_archive, test_main_tex_pick,
-               test_frontmatter_regression,
+               test_frontmatter_regression, test_springer_template,
+               test_preamble_carry, test_email_backfill, test_cas_draft_style,
                test_rule_binding, test_issue_code_hygiene):
         try:
             fn()

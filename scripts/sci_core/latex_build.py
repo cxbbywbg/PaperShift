@@ -154,6 +154,52 @@ def op_packages(text: str, add: list[str], remove: list[str], path: str, cfg: Jo
     return head + tail
 
 
+def _split_name(name: str) -> tuple[str, str]:
+    r"""`'Bo Liu'` → `('Bo', 'Liu')`，供 Springer 的 `\fnm{} \sur{}` 使用。
+
+    规则：最后一个词当姓，其余整体当名（`'Joergen W. Ploeg'` → `('Joergen W.', 'Ploeg')`）。
+    单词名猜不出姓，返回 `(原名, "")`。
+    """
+    toks = [t for t in re.split(r"\s+", (name or "").strip()) if t]
+    if len(toks) < 2:
+        return (name or "").strip(), ""
+    return " ".join(toks[:-1]), toks[-1]
+
+
+def _split_affiliation(text: str) -> dict:
+    r"""把纯文本单位拆成 Springer 的 `\orgdiv` / `\orgname` / `\orgaddress` 字段。
+
+    典型输入（Elsevier / Springer 老模板里都是一行纯文本）：
+
+        School of Automation, Guangdong University of Technology, Guangzhou 510006, China
+
+    规则：按逗号分段 → 第 1 段 `orgdiv`、第 2 段 `orgname`，其余当地址；
+    地址里「城市 邮编」连写的段拆开，纯国家名进 `country`。
+
+    这是**启发式**，猜不准的字段留空（不硬塞）——宁可字段少也不要写错单位，
+    调用方应标 needs_author 让作者核对。
+    """
+    parts = [p.strip() for p in re.split(r"[,，]", (text or "")) if p.strip()]
+    out = {"orgdiv": "", "orgname": "", "city": "", "postcode": "", "country": ""}
+    if not parts:
+        return out
+    out["orgdiv"] = parts[0]
+    if len(parts) >= 2:
+        out["orgname"] = parts[1]
+    for seg in parts[2:]:
+        m = re.match(r"^(.+?)[\s,]+(\d{4,6})$", seg)
+        if m:
+            out["city"] = out["city"] or m.group(1).strip()
+            out["postcode"] = out["postcode"] or m.group(2)
+            continue
+        if re.fullmatch(r"\d{4,6}", seg):
+            out["postcode"] = out["postcode"] or seg
+            continue
+        if not out["country"]:
+            out["country"] = seg
+    return out
+
+
 def _metadata_block(ms: M.Manuscript, cfg: JournalConfig, changes: ChangeLog, path: str,
                     kw_sep: str = ", ", meta_override: dict | None = None) -> str:
     """按目标模板的命令体系生成作者/单位/关键词块。"""
@@ -213,32 +259,64 @@ def _metadata_block(ms: M.Manuscript, cfg: JournalConfig, changes: ChangeLog, pa
 
     aff_line_tpl = meta.get("affiliation")
     if aff_line_tpl and affils:
+        need_struct = "\\orgdiv" in aff_line_tpl or "\\orgname" in aff_line_tpl
+        # 原稿若本来就是 key=value 写法（elsarticle/CAS 的 organization=/city=/country=），
+        # 解析阶段已经拆好字段，直接用，别再按逗号瞎切一遍。
+        kv_parts: dict[str, dict] = ms.metadata.doc_meta.get("affiliation_parts", {}) or {}
+        text_parts: dict[str, dict] = {}
+        for k, v in aff_map.items():
+            if k in kv_parts:
+                text_parts.setdefault(v, kv_parts[k])
         for i, a in enumerate(affils, 1):
-            out.append(_fmt(aff_line_tpl, key=f"aff{i}", value=a))
+            if need_struct:
+                parts = text_parts.get(a) or _split_affiliation(a)
+                line = _fmt(aff_line_tpl, key=f"aff{i}", value=a, **parts)
+            else:
+                line = _fmt(aff_line_tpl, key=f"aff{i}", value=a)
+            out.append(line)
             changes.record(
                 CH_METADATA, f"单位 {i}", after=a,
-                reason="按目标模板的 \\affiliation 命令重新生成（原命令保留在注释中）",
+                reason=(
+                    "按目标模板的 \\affiliation 命令重新生成（原命令保留在注释中）"
+                    + ("；单位字段取自原稿的 organization/city/country 字段（原稿已是结构化写法，未做二次拆分）"
+                       if need_struct and a in text_parts else
+                       "；单位字段按逗号位置拆成 orgdiv/orgname/地址，**请核对拆分是否正确**"
+                       if need_struct else "")
+                ),
                 file=path, rule_source=cfg.rule_source("output.latex.metadata"),
+                needs_author=need_struct and a not in text_parts,
             )
 
     author_tpl = meta.get("author_line")
     if author_tpl and authors:
+        need_split = "\\fnm" in author_tpl or "\\sur" in author_tpl
+        # 谁是通讯作者：原稿有 \cormark/\corref 就按它来；一个都没有时才退化成
+        # 「有邮箱就算通讯」——否则每位作者都被标上 `\author*` 星号。
+        marked = [a for a in authors if a.get("corresponding")]
         for a in authors:
             aff_key = aff_key_for(a)
             aff_text = aff_text_for(a)
-            thanks = ""
-            if a.get("email"):
-                thanks = "\\thanks{" + a["email"] + "}"
+            name = a.get("name", "") or ""
+            email = (a.get("email") or "").strip()
+            thanks = "\\thanks{" + email + "}" if email else ""
+            given, family = _split_name(name) if need_split else (name, "")
+            email_cmd = ("\\email{" + email + "}") if email else ""
             line = _fmt(
-                author_tpl, name=a.get("name", ""), affil_key=aff_key,
-                affil=aff_text, thanks=thanks,
+                author_tpl, name=name, affil_key=aff_key, affil=aff_text,
+                thanks=thanks, given=given, family=family, email_cmd=email_cmd,
             )
+            is_corr = bool(a.get("corresponding")) if marked else bool(email)
+            if need_split and email and is_corr:
+                # 通讯作者用 \author* 标出（星号位置必须在 [ 之前）
+                line = line.replace("\\author[", "\\author*[", 1)
             out.append(line)
         src = ms.metadata.doc_meta.get("title_page_file")
         reason = "按目标模板的 \\author 命令重新生成（原命令保留在注释中）"
         if src:
             reason += (f"；作者/单位取自同项目的标题页文件 {src}"
                        "（其 \\title 与主文件逐字相同，可确认是同一篇稿子）")
+        if need_split:
+            reason += "；姓名按「最后一词为姓」拆成 \\fnm/\\sur，**请核对**"
         changes.record(
             CH_METADATA, "作者列表", after=f"{len(authors)} 位作者",
             reason=reason,
@@ -376,6 +454,74 @@ def op_bibliography(text: str, cfg: JournalConfig, path: str, changes: ChangeLog
             needs_author=True, auto=False,
         )
     return text
+
+
+# 只对「文档类专有、换了文档类就没有意义」的排版命令生效。判据两条同时成立：
+#   1. 命令在下面这份清单里（各家的 frontmatter 渲染器 / 脚注标记命令）；
+#   2. 目标模板（含 .cls/.sty）确实没有定义它。
+# 不满足就一律不动 —— 正文里的用户自定义宏走 `_carry_preamble` 那条路，不在这里处理。
+CLASS_BOUND_BODY_CMDS = frozenset({
+    # Elsevier CAS / elsarticle
+    "printcredits", "cortext", "cormark", "ead", "fntext", "shorttitle",
+    "shortauthors", "credit", "corref", "fnmark", "fnref", "nonumnote",
+    "tnotetext", "tnotemark", "tnoteref", "dedication", "preprintfooter",
+    # Springer Nature
+    "equalcont", "spfx", "sfx",
+    # IEEEtran
+    "IEEEauthorblockN", "IEEEauthorblockA",
+})
+
+
+def op_neutralize_class_commands(text: str, provided_cmds: set[str] | None, path: str,
+                                 cfg: JournalConfig, changes: ChangeLog,
+                                 bag: IssueBag | None = None) -> str:
+    r"""把「原文档类专有、目标文档类没有」的排版命令注释掉。
+
+    这类命令是**原文档类**的 frontmatter 渲染器，换类之后就没有意义，留着只会
+    让编译报 `Undefined control sequence`。实测：Elsevier CAS 的 `\printcredits`
+    定义在 `cas-common.sty` 里（用来打印各作者的 `\credit{}` CRediT 角色），
+    而 Springer `sn-jnl.cls` 里根本没有这个命令 —— 转出来的稿子编译必挂。
+    它通常写在声明区（正文里），所以躲不过元信息重写，必须单独处理。
+
+    两条安全约束：
+
+    * **只处理独占一行的写法**。行内出现的保持原样并记 warning —— 注释掉半行
+      会把正文切坏，比编译错误更难查。
+    * `provided_cmds` 为 None 时**什么都不做**（不知道目标类定义了什么就别猜）。
+    """
+    if provided_cmds is None:
+        return text
+    lines = text.split("\n")
+    out: list[str] = []
+    hit: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        m = re.fullmatch(r"\\([A-Za-z]+)\s*", stripped)
+        if not m or m.group(1) not in CLASS_BOUND_BODY_CMDS or m.group(1) in provided_cmds:
+            out.append(line)
+            continue
+        name = m.group(1)
+        hit.append(name)
+        out.append(f"% [sci-trans] \\{name} 属于原文档类，目标模板没有定义该命令，已注释（避免编译报 Undefined control sequence）")
+        out.append("% " + line)
+    if hit:
+        changes.record(
+            CH_STRUCTURE, "原文档类专有命令",
+            before=", ".join("\\" + h for h in hit),
+            after="(已注释保留)",
+            reason="这些命令由原文档类（如 Elsevier 的 cas-common.sty）定义，目标模板没有；"
+                   "不注释会直接编译失败。命令本身只是 frontmatter 的渲染器，"
+                   "对应的信息已随元信息重写迁移。",
+            file=path, rule_source=cfg.rule_source("output.latex.template"),
+        )
+        if bag is not None:
+            bag.warn(
+                "CVT030", CAT_LATEX,
+                f"正文里有 {len(hit)} 个原文档类专有命令，已注释：{', '.join('\\\\' + h for h in hit)}",
+                location=Location(file=path),
+                suggestion="核对注释掉的命令是否确实只是排版渲染器；若其中承载了正文信息，请手动改写。",
+            )
+    return "\n".join(out)
 
 
 def op_section_numbering(text: str, cfg: JournalConfig, path: str, changes: ChangeLog) -> str:
@@ -705,7 +851,11 @@ def _copy_template_assets(tpl_dir: Path, out: Path, log: Log,
         if suffix == ".tex":
             continue
         sibling = p.parent == tpl_dir
-        if suffix in TEMPLATE_ASSET_SUFFIXES and sibling:
+        # `.bst` 无视目录一律随包：它是编译必需文件（`\documentclass` 选项
+        # 或 `\bibliographystyle` 指向它），而官方 kit 常把它整族放在 `bst/`
+        # 子目录里——按「同目录」规则会全部丢掉，结果包直接编译不过。
+        # 它体积小、不含隐私内容，多带无害。
+        if suffix in TEMPLATE_ASSET_SUFFIXES and (sibling or suffix == ".bst"):
             pass
         elif (suffix in TEMPLATE_ASSET_SUFFIXES or suffix in TEMPLATE_MEDIA_SUFFIXES) \
                 and p.name.lower() in refs:
@@ -735,22 +885,135 @@ def _copy_template_assets(tpl_dir: Path, out: Path, log: Log,
     return copied
 
 
+def _template_support_texts(tpl_head: str, tpl_dir: Path | None) -> list[str]:
+    """模板主文件 + 同目录 `.cls`/`.sty`/`.clo` 的文本（用于判断「模板已提供什么」）。"""
+    texts = [tpl_head]
+    if tpl_dir and tpl_dir.is_dir():
+        for p in sorted(tpl_dir.iterdir()):
+            if not p.is_file() or p.suffix.lower() not in {".cls", ".sty", ".clo"}:
+                continue
+            try:
+                texts.append(p.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    return texts
+
+
+def _collect_provided_pkgs(tpl_head: str, tpl_dir: Path | None = None) -> set[str]:
+    r"""汇总模板「已经提供」的宏包名。
+
+    两个来源都要看，缺一不可：
+
+    * 模板主文件的 `\usepackage{...}`；
+    * 模板目录里 `.cls`/`.sty` 支持文件内部的 `\usepackage`/`\RequirePackage`。
+
+    只看主文件会漏掉绝大多数期刊类 —— Springer `sn-jnl.cls` 在类文件里就
+    `\usepackage[numbers,sort&compress]{natbib}`，Elsevier `cas-sc.cls` 同理。
+    原稿导言区里那条 `\usepackage[authoryear,longnamesfirst]{natbib}` 若被
+    当成「模板没加载」补进结果，就会和类文件里的 natbib **选项冲突**，
+    直接 `Option clash for package natbib` 编译失败。
+    """
+    pkgs: set[str] = set()
+    pat = re.compile(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+    for t in _template_support_texts(tpl_head, tpl_dir):
+        for m in pat.finditer(t):
+            for x in m.group(1).split(","):
+                x = x.strip()
+                if x:
+                    pkgs.add(x)
+    return pkgs
+
+
+_DEF_NAME_RES = (
+    # \newcommand\foo / \newcommand{\foo} / \renewcommand*{\foo} / \providecommand...
+    re.compile(r"\\(?:newcommand|renewcommand|providecommand|DeclareRobustCommand|"
+               r"DeclareMathOperator)\*?\s*\{?\s*\\([A-Za-z@]+)"),
+    # \newtheorem{theorem}{Theorem} / \newenvironment{foo} / \renewenvironment{foo}
+    re.compile(r"\\(?:newtheorem|newenvironment|renewenvironment)\*?\s*\{([^}]*)\}"),
+    # \def\foo#1{...} / \gdef\foo
+    re.compile(r"\\(?:g?def)\s*\\([A-Za-z@]+)"),
+)
+
+
+def _defined_name(line: str) -> str:
+    """从一行导言区代码里取「被定义的命令名」；不是定义则返回空串。"""
+    for rx in _DEF_NAME_RES:
+        m = rx.match(line)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _statement_span(text: str, start: int) -> int:
+    r"""从 `start`（一条导言区定义的起点）读到该语句结束，返回结束下标（不含）。
+
+    与 `PREAMBLE_CARRY_RE` 的**逐行**匹配不同，这里按花括号配平读完整条语句。
+    逐行匹配会把跨行的定义截成半句：
+
+        \newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+            \node[shape=circle, draw, inner sep=1pt] (char) {#1};}}
+
+    只抄第一行 → 结果里留下**未闭合的 `{`**，而 `scan_commands` 读到配平分组
+    才收手，于是从这一行起把**整个文件**的后续内容全吞掉。实测症状：花括号
+    1297 vs 1295、25 个章节全变 0 节、标题/摘要/作者全部「未识别」、70 个引用键
+    被误报成「不存在」。所以定义必须整条搬。
+    """
+    i, n = start, len(text)
+    depth = 0
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2                      # 跳过转义字符（\% 不是注释）
+            continue
+        if ch == "%":
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+        elif ch == "\n" and depth == 0:
+            return i                    # 花括号配平后的第一个换行 = 语句结束
+        i += 1
+    return n
+
+
+def _collect_provided_cmds(tpl_head: str, tpl_dir: Path | None = None) -> set[str]:
+    r"""汇总模板「已经定义」的命令名（宏包之外的那一半）。
+
+    `sn-jnl.cls` 自己 `\def\fnm`、`\def\sur`、`\newcommand{\orgdiv}`，所以原稿
+    导言区里那批 `\providecommand{\fnm}[1]{#1}` 是多余的；`\newtheorem{theorem}`
+    若被重复带入，更会直接报 "Command \theorem already defined"。
+    与宏包同理，只看模板主文件会漏掉类文件里的定义。
+    """
+    names: set[str] = set()
+    for t in _template_support_texts(tpl_head, tpl_dir):
+        for line in t.splitlines():
+            n = _defined_name(line.lstrip())
+            if n:
+                names.add(n)
+    return names
+
+
 def _carry_preamble(src_head: str, tpl_head: str, cfg: JournalConfig, path: str,
-                    changes: ChangeLog) -> str:
+                    changes: ChangeLog, tpl_dir: Path | None = None) -> str:
     """把原稿导言区里「模板没有但正文依赖」的宏包与自定义定义带进模板。
 
     不带这些，正文里的 \\method{} 之类自定义命令会直接编译失败。
     """
-    tpl_pkgs: set[str] = set()
-    for m in re.finditer(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", tpl_head):
-        for x in m.group(1).split(","):
-            tpl_pkgs.add(x.strip())
+    tpl_pkgs = _collect_provided_pkgs(tpl_head, tpl_dir)
+    tpl_cmds = _collect_provided_cmds(tpl_head, tpl_dir)
     remove = set(cfg.latex().get("packages_remove") or [])
 
     carry: list[str] = []
     seen: set[str] = set()
 
-    for m in re.finditer(r"\\usepackage\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}", src_head):
+    # 只认**活着的** `\usepackage`。原稿导言区里 `%\usepackage[...]{natbib}`
+    # 这类「留档备查」的注释行极其常见，若照抄进结果就会凭空激活一条命令，
+    # 与类文件里的同类宏包撞车。用 _live_matches 过滤掉注释里的匹配。
+    for m in _live_matches(re.compile(r"\\usepackage\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}"), src_head):
         names = [x.strip() for x in m.group(2).split(",") if x.strip()]
         missing = [n for n in names if n not in tpl_pkgs and n not in remove]
         if not missing:
@@ -769,9 +1032,20 @@ def _carry_preamble(src_head: str, tpl_head: str, cfg: JournalConfig, path: str,
                 file=path, rule_source=cfg.rule_source("output.latex.base"),
             )
 
-    for m in PREAMBLE_CARRY_RE.finditer(src_head):
-        line = m.group(0).strip()
+    pos = 0
+    while True:
+        m = PREAMBLE_CARRY_RE.search(src_head, pos)
+        if m is None:
+            break
+        end = _statement_span(src_head, m.start())
+        pos = end if end > m.start() else m.end()
+        line = src_head[m.start():end].strip()
         if not line or line.startswith("%") or line in seen:
+            continue
+        name = _defined_name(line)
+        if name and name in tpl_cmds:
+            # 模板（含 .cls/.sty）已经定义过同名命令，重复带入轻则冗余、
+            # 重则 "Command \X already defined" 直接编译失败。
             continue
         seen.add(line)
         carry.append(line)
@@ -855,20 +1129,44 @@ def _infer_metadata_templates(region: str) -> dict:
     if re.search(r"\\title\s*(?:\[[^\]]*\])?\s*\{", masked):
         tpl["title"] = "\\title{%value}"
 
-    ma = re.search(r"\\author\s*(\[[^\]]*\])?\s*\{", masked)
+    ma = re.search(r"\\author\s*\*?\s*(\[[^\]]*\])?\s*\{", masked)
     if ma:
-        tpl["author_line"] = "\\author[%affil_key]{%name}" if ma.group(1) else "\\author{%name}"
+        try:
+            inner, _end = read_group(region, ma.end() - 1)
+        except Exception:
+            inner = ""
+        if "\\fnm" in inner or "\\sur" in inner:
+            # Springer Nature 风格：姓名要拆成 \fnm{名} \sur{姓}
+            tpl["author_line"] = "\\author[%affil_key]{\\fnm{%given} \\sur{%family}}%email_cmd"
+        else:
+            tpl["author_line"] = "\\author[%affil_key]{%name}" if ma.group(1) else "\\author{%name}"
 
-    maf = re.search(r"\\(affiliation|affil|institute|address)\s*(\[[^\]]*\])?\s*\{", masked)
+    maf = re.search(r"\\(affiliation|affil|institute|address)\s*\*?\s*(\[[^\]]*\])?\s*\{", masked)
     if maf:
         cmd = maf.group(1)
-        tpl["affiliation"] = (
-            f"\\{cmd}[%key]{{%value}}" if maf.group(2) else f"\\{cmd}{{%value}}"
-        )
+        try:
+            aff_inner, _end = read_group(region, maf.end() - 1)
+        except Exception:
+            aff_inner = ""
+        if "\\orgdiv" in aff_inner or "\\orgname" in aff_inner or "\\orgaddress" in aff_inner:
+            # Springer Nature 风格：单位要拆成 \orgdiv / \orgname / \orgaddress
+            tpl["affiliation"] = (
+                f"\\{cmd}[%key]{{\\orgdiv{{%orgdiv}}, \\orgname{{%orgname}}, "
+                "\\orgaddress{\\city{%city}, \\postcode{%postcode}, \\country{%country}}}"
+            )
+        else:
+            tpl["affiliation"] = (
+                f"\\{cmd}[%key]{{%value}}" if maf.group(2) else f"\\{cmd}{{%value}}"
+            )
 
     kw = _first_env_span(masked, KEYWORD_ENVS)
     if kw:
         tpl["keywords_command"] = f"\\begin{{{kw[2]}}}%value\\end{{{kw[2]}}}"
+    else:
+        # 命令式关键词（Springer 的 \keywords{a, b, c}）——不认这个的话
+        # 模板示例关键词会原地留着，新关键词被追加到别处，等于没换。
+        if re.search(r"\\keywords?\s*\*?\s*\{", masked):
+            tpl["keywords_command"] = "\\keywords{%value}"
     return tpl
 
 
@@ -892,8 +1190,12 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
     inserts: list[tuple[int, str]] = []      # 需要补入的内容及其插入位置
 
     # ---- 1. 作者 / 单位命令体系（先算区间：标题可能落在区间里，要并进新块）----
+    # 命令名后的 `*` 必须认（Springer 用 `\author*[1,2]{}` 标通讯作者、
+    # `\affil*[1]{}` 标第一单位）。不认星号时这些命令整条匹配不上，区间起点
+    # 会落到紧跟其后的 `\email{...}` 上——结果是 `\author*[1,2]{...}` 那半截
+    # 留在区间外、`\email{...}` 被替换掉，文件被切坏且花括号不配平。
     spans: list[tuple[int, int]] = []
-    for m in re.finditer(r"\\([A-Za-z]+)\s*(?:\[[^\]]*\])?\s*\{", masked):
+    for m in re.finditer(r"\\([A-Za-z]+)\s*\*?\s*(?:\[[^\]]*\])?\s*\{", masked):
         if m.group(1) not in FRONT_AUTHOR_CMDS:
             continue
         try:
@@ -1004,8 +1306,11 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
         )
 
-    # ---- 4. 摘要环境 ----
+    # ---- 4. 摘要（环境式或命令式）----
     abs_span = _find_env_span(masked, "abstract") or _find_env_span(masked, "abstract*")
+    # 命令式摘要（Springer 的 \abstract{...}）：不认这个的话模板示例摘要会
+    # 原地留着、原稿摘要被追加到别处，等于没换（还会留下孤立的 \end{abstract}）。
+    abs_cmd_m = None if abs_span else re.search(r"\\abstract\s*\*?\s*\{", masked)
     if abs_span:
         s, e = abs_span
         env_name = "abstract*" if region[s:s + 24].lstrip("\\begin{").startswith("abstract*") else "abstract"
@@ -1028,6 +1333,32 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
                 needs_author=True, auto=False,
             )
+    elif abs_cmd_m:
+        try:
+            _abs_inner, abs_end = read_group(region, abs_cmd_m.end() - 1)
+        except Exception:
+            abs_end = -1
+        if abs_end > 0:
+            if abstract:
+                edits.append((abs_cmd_m.start(), abs_end, "\\abstract{" + abstract + "}"))
+                changes.record(
+                    CH_METADATA, "摘要",
+                    after=abstract[:120] + ("…" if len(abstract) > 120 else ""),
+                    reason="套用目标模板的 \\abstract 命令（摘要文字取自原稿，未改写）",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
+                )
+            else:
+                edits.append((
+                    abs_cmd_m.start(), abs_end,
+                    "% [sci-trans] 模板摘要占位已清空（原稿未解析到摘要）\n"
+                    "\\abstract{[待作者填写]}",
+                ))
+                changes.record(
+                    CH_METADATA, "摘要", after="[待作者填写]",
+                    reason="原稿未解析到摘要，模板示例摘要已清空，需作者补填",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
+                    needs_author=True, auto=False,
+                )
     elif abstract:
         inserts.append((len(region), "\\begin{abstract}\n" + abstract + "\n\\end{abstract}\n"))
         changes.record(
@@ -1039,6 +1370,9 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
     # ---- 5. 关键词环境 ----
     kw_span = _first_env_span(masked, KEYWORD_ENVS)
     kw_value = kw_sep.join(keywords) if keywords else ""
+    # 命令式关键词（Springer 的 \keywords{a, b, c}）：不认这个的话模板示例
+    # 关键词会原地留着、新关键词被追加到别处，等于没换。
+    kw_cmd_m = None if kw_span else re.search(r"\\keywords?\s*\*?\s*\{", masked)
     if kw_span:
         s, e, env = kw_span
         body = kw_value or "[待作者填写]"
@@ -1056,6 +1390,29 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
                 needs_author=True, auto=False,
             )
+    elif kw_cmd_m:
+        try:
+            _kw_inner, kw_end = read_group(region, kw_cmd_m.end() - 1)
+        except Exception:
+            kw_end = -1
+        if kw_end > 0:
+            tpl_line = str(meta.get("keywords_command") or "\\keywords{%value}")
+            edits.append(
+                (kw_cmd_m.start(), kw_end, _fmt(tpl_line, value=kw_value or "[待作者填写]"))
+            )
+            if keywords:
+                changes.record(
+                    CH_METADATA, "关键词", after=", ".join(keywords),
+                    reason="套用目标模板的关键词命令（关键词取自原稿，未改写）",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
+                )
+            else:
+                changes.record(
+                    CH_METADATA, "关键词", after="[待作者填写]",
+                    reason="原稿未解析到关键词，模板示例关键词已清空，需作者补填",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
+                    needs_author=True, auto=False,
+                )
     elif keywords:
         line = meta.get("keywords_command") or "\\begin{keyword}%value\\end{keyword}"
         inserts.append((len(region), _fmt(str(line), value=kw_value) + "\n"))
@@ -1341,7 +1698,8 @@ def convert_latex_template(
     # ---- 4. 把原稿依赖的导言区定义带进模板 ----
     src_head_end = main_text.find("\\begin{document}")
     src_head = main_text[:src_head_end] if src_head_end > 0 else ""
-    head = _carry_preamble(src_head, head, cfg, main_rel.as_posix(), changes)
+    head = _carry_preamble(src_head, head, cfg, main_rel.as_posix(), changes,
+                           tpl_dir=tpl_path.parent)
 
     # ---- 5. 元信息区重写 ----
     if fm:
@@ -1381,6 +1739,14 @@ def convert_latex_template(
 
     # ---- 7. 声明补齐（排在参考文献命令之前）----
     body_new = op_declarations(body_new, ms, cfg, main_rel.as_posix(), changes)
+
+    # ---- 7b. 原文档类专有命令（如 CAS 的 \printcredits）----
+    # 这些命令定义在**原**文档类里，目标模板没有；留在正文里编译必挂。
+    # 判据用「目标模板 + 它的 .cls/.sty 是否定义过该命令」，可证伪才动手。
+    body_new = op_neutralize_class_commands(
+        body_new, _collect_provided_cmds(tpl_text, tpl_path.parent),
+        main_rel.as_posix(), cfg, changes, bag,
+    )
 
     # ---- 8. 文献样式与文献库 ----
     tail_after = _retarget_bibliography(

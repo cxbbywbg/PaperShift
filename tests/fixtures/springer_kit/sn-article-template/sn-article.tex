@@ -1,0 +1,44 @@
+%% Springer Nature LaTeX template — 测试夹具（最小可用骨架，非官方原件）
+%%
+%% 这套模板的元信息写法跟 Elsevier CAS 完全不同，是回归测试要钉住的形态：
+%%   * `\author*[1,2]{}` / `\affil*[1]{}` **带星号**（通讯作者 / 第一单位）
+%%   * 姓名拆成 `\fnm{名} \sur{姓}`
+%%   * 单位拆成 `\orgdiv{}` / `\orgname{}` / `\orgaddress{}`
+%%   * 摘要与关键词都是**命令式**（`\abstract{}` / `\keywords{}`），不是环境
+%%   * `.bst` 放在 `bst/` 子目录里
+\documentclass[pdflatex,sn-mathphys-num]{sn-jnl}
+
+\begin{document}
+
+\title[Article Title]{Article Title}
+
+%%=============================================================%%
+%% GivenName	-> \fnm{Joergen W.}
+%% FamilyName	-> \sur{Ploeg}
+%%=============================================================%%
+
+\author*[1,2]{\fnm{First} \sur{Author}}\email{iauthor@gmail.com}
+
+\author[2,3]{\fnm{Second} \sur{Author}}\email{iiauthor@gmail.com}
+
+\affil*[1]{\orgdiv{Department}, \orgname{Organization}, \orgaddress{\street{Street}, \city{City}, \postcode{100190}, \state{State}, \country{Country}}}
+
+\affil[2]{\orgdiv{Department}, \orgname{Organization}, \orgaddress{\street{Street}, \city{City}, \postcode{10587}, \state{State}, \country{Country}}}
+
+\abstract{The abstract serves both as a general introduction to the topic and as a brief, non-technical summary of the main results and their implications. Authors are advised to check the author instructions for the journal they are submitting to for word limits.}
+
+\keywords{keyword1, Keyword2, Keyword3, Keyword4}
+
+\maketitle
+
+\section{Introduction}\label{sec1}
+
+Template sample body text that must be replaced by the source manuscript body.
+
+\section{Results}\label{sec2}
+
+More template sample body text.
+
+\bibliography{sn-bibliography}
+
+\end{document}

@@ -31,7 +31,7 @@ from .latex_parse import (
     scan_commands,
     strip_comments,
 )
-from .util import Log, find_tool, rel, run_cmd
+from .util import Log, find_tool, read_text, rel, run_cmd
 
 ENGINE_ORDER = ["latexmk", "pdflatex", "xelatex", "lualatex"]
 
@@ -251,6 +251,44 @@ def static_check(root: str | Path, ms: M.Manuscript, known_bib_keys: set[str] | 
             location=Location(file=rel(main, root)),
             evidence="；".join(m[:40] for m in ms.custom_macros[:4]),
             suggestion="若目标模板未定义这些宏，需要在导言区保留定义或改为标准命令。",
+        )
+
+    # ---- 13. 与正文无关的独立文档 ----
+    # 一份 .tex 自己带 `\documentclass` 就是一份**独立文档**；主文件若没有
+    # `\input` 它，它就不可能参与编译。这类文件留在结果包里是有害的：
+    # 作者从官网 kit 起步、把正文另存成 new-Manuscript.tex 时，包里会同时存在
+    # 官方模板、说明书和另一版式样例（实测一次投稿包里躺着
+    # `cas-sc-template.tex` / `cas-dc-template.tex` / `cas-dc-sample.tex` /
+    # `doc/elsdoc-cas.tex` 四份）——Overleaf 里多出好几个候选主文件，选错就
+    # 编出别人的模板；投稿系统也可能整包退回。
+    main_abs = Path(ms.main_file).resolve() if ms.main_file else None
+    flattened = set()
+    for f in flat.files:
+        try:
+            flattened.add(Path(f).resolve())
+        except OSError:
+            continue
+    strays: list[str] = []
+    for p in sorted(root.rglob("*.tex")):
+        if main_abs and p.resolve() == main_abs:
+            continue
+        if p.resolve() in flattened:
+            continue            # 被 \input/\include 拉进来的片段，属于正文的一部分
+        try:
+            t = strip_comments(read_text(p))
+        except OSError:
+            continue
+        if "\\documentclass" not in t:
+            continue
+        strays.append(rel(p, root))
+    if strays:
+        bag.warn(
+            "LTX050", CAT_FILE,
+            f"结果包里还有 {len(strays)} 份与正文无关的独立文档（自带头部 \\documentclass，正文并未引用）",
+            location=Location(file=rel(main, root)),
+            evidence="；".join(strays[:6]) + ("…" if len(strays) > 6 else ""),
+            suggestion="投稿前建议剔除：它们会让 Overleaf 里出现多个候选主文件（选错就编出模板样例），"
+                       "也可能被投稿系统当成无关材料。",
         )
 
     return bag

@@ -22,6 +22,10 @@ def _sec_key(s: M.Section) -> str:
 def conclusion_text(d: dict) -> str:
     """一句话结论（CLI、报告、差异报告共用同一套措辞，避免口径不一致）。"""
     if d.get("identical"):
+        if d.get("metadata_rewritten"):
+            return "正文内容未变；元信息按目标模板的命令体系重新表示（标题/作者/单位/摘要/关键词）"
+        if d.get("metadata_changed"):
+            return "正文内容未变；但元信息变化较大，请对照差异报告核对"
         return "无（仅版式/格式发生变化）"
     if d.get("declarations_only_added"):
         decl = d.get("declarations") or {}
@@ -215,8 +219,11 @@ def diff_manuscripts(before: M.Manuscript, after: M.Manuscript,
     }
 
     # ---- 结论 ----
+    # 元信息**不算正文**：换模板必然要换命令体系（`\author` → `\fnm/\sur`、
+    # `\affiliation` → `\orgdiv/\orgname/\orgaddress`），把这种「换个写法」算成
+    # 「内容差异」会让作者以为正文被改了。单独归类，只在相似度掉下来时才提示。
+    meta_ratios = [v.get("ratio", 0.0) for v in (md or {}).values()]
     body_changed = bool(any([
-        md,
         out["sections"]["added"], out["sections"]["removed"], out["sections"]["changed"],
         out["figures"]["added"], out["figures"]["removed"], out["figures"]["changed"],
         out["tables"]["added"], out["tables"]["removed"], out["tables"]["changed"],
@@ -229,6 +236,9 @@ def diff_manuscripts(before: M.Manuscript, after: M.Manuscript,
     # 「正文没动，只是补了声明占位」是一个需要单独说清楚的结论：
     # 它既不是"零差异"，也不该被当成正文被改写。
     out["body_changed"] = body_changed
+    out["metadata_changed"] = bool(md)
+    # 元信息差异是否只是「换了个写法」——相似度都还在高位就按表示变化处理
+    out["metadata_rewritten"] = bool(meta_ratios) and all(r >= 0.9 for r in meta_ratios)
     out["declarations_only_added"] = bool(
         not body_changed and decl["added"] and not decl["removed"] and not decl["changed"]
     )
@@ -257,7 +267,13 @@ def render_diff_md(d: dict, max_unified: int = 12) -> str:
     L.append("")
     L.append(f"- 对比：**{d['label_before']}** → **{d['label_after']}**")
     if d.get("identical"):
-        concl = "**未检测到内容差异**（仅版式/格式发生变化）"
+        if d.get("metadata_rewritten"):
+            concl = ("**正文内容未变**；元信息已按目标模板的命令体系重新表示"
+                     "（标题/作者/单位/摘要/关键词）")
+        elif d.get("metadata_changed"):
+            concl = "**正文内容未变**；但元信息变化较大，请对照下文核对"
+        else:
+            concl = "**未检测到内容差异**（仅版式/格式发生变化）"
     elif d.get("declarations_only_added"):
         concl = "**正文内容未变**；转换过程补入了投稿声明占位（`[待作者填写]`，需作者补全）"
     else:

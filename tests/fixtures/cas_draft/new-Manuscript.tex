@@ -1,0 +1,90 @@
+%% Elsevier CAS 风格初稿夹具（测试用最小骨架）
+%%
+%% 钉住四类真实踩过的坑：
+%%   1. 跨行的 \newcommand —— 逐行搬运会截成半句，留下未闭合的 `{`，
+%%      把整个文件的后续解析全带崩；
+%%   2. `\author[a]{Bo Liu}\cormark[1]\ead{a@b.c}` —— 邮箱与通讯标记都写在
+%%      `\author{}` **外面**，只读参数就两个字段全丢；
+%%   3. `\affiliation[a]{organization={...}, city={...}, country={...}}` ——
+%%      key=value 写法不能按逗号切（organization 的值自身含逗号）；
+%%   4. 包里混着官方 kit 的其他主文件与说明书（LTX050）。
+
+\documentclass[a4paper,fleqn]{cas-sc}
+
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{tikz}
+\usepackage{float}
+
+% 自定义命令（**跨行定义** —— 这一条是重点）
+\newcommand*\circled[1]{\tikz[baseline=(char.base)]{
+    \node[shape=circle, draw, inner sep=1pt] (char) {#1};}}
+\renewcommand{\algorithmicrequire}{\textbf{Input:}}
+\renewcommand{\algorithmicensure}{\textbf{Output:}}
+
+\begin{document}
+
+%标题
+\title [mode = title]{Explainability-Guided Partial Privileged Learning: A Class-Aware Weighted Similarity Approach}
+\shorttitle{}
+\shortauthors{}
+
+\author[a]{Bo Liu}\cormark[1]\ead{csbliu@gdut.edu.cn}\credit{Writing - original draft}
+\author[b]{Yanshan Xiao}\ead{xiaoyanshan@gdut.edu.cn}\credit{Funding acquisition}
+
+\affiliation[a]{organization={School of Automation, Guangdong University of Technology},
+                city={Guangzhou},
+                country={China}}
+\affiliation[b]{organization={School of Computer Science, Guangdong University of Technology},
+                city={Guangzhou},
+                country={China}}
+
+\cortext[cor1]{Corresponding author}
+\fntext[1]{}
+
+\begin{keywords}
+    Learning Using Privileged Information (LUPI) \sep Partial Privileged Learning \sep Explainable AI (XAI) \sep SVM+
+\end{keywords}
+
+\maketitle
+
+\begin{abstract}
+Learning Using Privileged Information (LUPI) enhances classifier performance by
+leveraging additional knowledge during training. We propose a framework termed
+Explainability-Guided Partial Privileged Learning (EPPL) that imputes missing
+privileged information with a class-aware weighted similarity strategy.
+\end{abstract}
+
+% Main text
+\section{Introduction}\label{introduction}
+
+Supervised learning has become a dominant paradigm in machine learning \cite{vapnik2009new}.
+In practical scenarios we often have access to a priori information associated
+with the training samples, which provides richer context for model
+interpretation \cite{li2018r}. When a subset of samples lacks this privileged
+component, standard LUPI methods cannot be directly applied.
+
+\section{Methodology}\label{sec:methodology}
+
+We denote the training set by $\{(x_i, y_i)\}$ and the privileged features by
+$x_i^{*}$. The weighted cosine similarity between a query sample and a
+candidate sample is computed with respect to the class-conditional importance
+vector. Features with high discriminative power retain their weights, while
+irrelevant or noisy features are strictly suppressed \cite{li2018r}.
+
+\section{Conclusion}\label{conclusion}
+
+We presented an explainability-guided framework for partial privileged
+learning. Future work will extend the framework to multi-modal settings.
+
+\section*{Declaration of competing interest}
+
+The authors declare that they have no known competing financial interests or
+personal relationships that could have appeared to influence the work reported
+in this paper.
+
+\bibliographystyle{cas-model2-names}
+\bibliography{references}
+
+\end{document}

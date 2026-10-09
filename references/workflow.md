@@ -55,9 +55,13 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 - **移植原稿内容**：标题、作者、单位、摘要、关键词、研究亮点、正文、声明、文献命令按模板的命令体系放进去。
 - 模板里的示例内容（示例标题、示例作者、示例摘要、lorem ipsum 正文）整段清掉，**并以注释保留**便于回溯。
 - **示例文献库会被替换**，不是往后追加：模板的 `\bibliography{cas-refs}` 指向随包样例文献，直接追加原稿的 `\bibliography{references}` 会让两条同时生效（参考文献凭空变多），而且追加位置可能落到 `\end{document}` 之后等于没写。注释里的示例文献样式也不会被意外激活。
-- 原稿依赖而模板没有的 `\newcommand` / `\DeclareMathOperator` / `\usepackage` 补进导言区，否则正文会编译失败；逐条记入转换记录。
+- 原稿依赖而模板没有的 `\newcommand` / `\DeclareMathOperator` / `\usepackage` 补进导言区，否则正文会编译失败；逐条记入转换记录。三条约束：①**被注释掉的 `%\usepackage{...}` 不算依赖**，不迁移；②判定「模板有没有」时**同时读模板主文件与同目录 `.cls`/`.sty`** —— 期刊类常把 `\usepackage[numbers,sort&compress]{natbib}`、`\def\fnm`、`\newtheorem{theorem}` 写在类文件里，只看主文件会重复带入，触发 `Option clash for package natbib` / `Command \theorem already defined`；③自定义宏按花括号配平**整条**搬运，跨行 `\newcommand` 被截成半句会留下未闭合的 `{`，把整个文件的后续解析带崩（症状：章节数变 0、引用键全部「不存在」）。
+- **正文里的原文档类专有命令会被注释保留**（如 CAS 的 `\printcredits`，定义在 `cas-common.sty`，Springer `sn-jnl.cls` 没有）。判据：目标模板 + 其 `.cls`/`.sty` 确实没定义该命令，且它**独占一行**；行内出现的不动（注释半行比编译错误更难查）。记 `CVT030`。
 - 模板自带的 `\bibliographystyle` 优先保留（它对应随附的 `.bst`）；与期刊配置不一致时提示人工确认，不静默覆盖。
 - **作者信息在独立标题页时**：主文件没有 `\author` 才会去找同目录另一个 `.tex`，且只认 `\title` 与主文件逐字相同的那一个；补入后在转换记录里写明取自哪个文件。
+- **主文件已有作者但缺通讯邮箱时**，仍会去标题页**按姓名**配对回填邮箱（只补邮箱，不新增作者、不改名字/单位，标题对不上不碰），来源记入 `email_source_file`。投稿系统几乎都强制要通讯邮箱，静默丢掉是最容易踩的坑。
+- **Elsevier 的 `\ead{}` / `\cormark` 在 `\author{}` 外面**，要单独采集；`\cormark`/`\corref` 决定谁带 `\author*`。`\affiliation[a]{organization={...}, city={...}, country={...}}` 是 key=value 写法，走结构化解析而非按逗号切。
+- **`LTX050`：结果包里若还有自己带 `\documentclass`、正文又没引用的独立文档**，会报警。从官网 kit 起步的稿子最容易中招（包里躺着官方模板、说明书、另一版式样例）。
 - **模板要求 research highlights 而原稿没有**：列入「需作者确认」，不留空 `\item` 让作者自己发现。
 
 **交付时要说清**

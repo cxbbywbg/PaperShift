@@ -189,7 +189,7 @@ submission/journals/
 模板模式的关键行为：
 
 - **模板的版式权威，原稿的内容权威。** 模板导言区原样保留；原稿正文逐字移植。
-- **原稿依赖的宏与宏包会一起带过去。** 模板没声明的 `\newcommand` / `\DeclareMathOperator` / `\usepackage` 会被补进导言区，否则正文里的自定义命令直接编译失败；逐条记入转换记录。
+- **原稿依赖的宏与宏包会一起带过去 —— 但模板已有的不重复带。** 模板没声明的 `\newcommand` / `\DeclareMathOperator` / `\usepackage` 会被补进导言区，否则正文里的自定义命令直接编译失败；逐条记入转换记录。判定「模板有没有」时**同时看模板主文件和它的 `.cls`/`.sty`**：期刊类几乎都把 `\usepackage[numbers,sort&compress]{natbib}`、`\def\fnm`、`\newtheorem{theorem}` 写在类文件里，只看主文件会把原稿里的同名命令重复带入，轻则冗余、重则 `Option clash for package natbib` / `Command \theorem already defined` 直接编译失败。**被注释掉的 `%\usepackage{...}` 不算依赖**，不会被凭空激活。
 - **模板里的示例内容整段清掉并注释保留**，可回溯。
 - **摘要 / 标题 / 关键词用 LaTeX 原文**，`\method{}`、`41.7\%`、`$1.9\times$` 不会被抹平。
 - **模板自带的文献样式优先**，与期刊配置不一致时提示人工确认，不静默覆盖。
@@ -307,6 +307,8 @@ python scripts/sci.py run ~/Downloads/my-paper.zip --template ~/Downloads/els-ca
 
 标题对不上就一律留空并列进「需作者确认」——同目录里还可能有回复审稿人意见书等别的文档，不能见 `\author` 就拿来用。
 
+**主文件已有作者、但缺通讯邮箱时也会去标题页找。** 真实投稿里「作者名单」和「邮箱」经常不同源：主文件写 `\author[aff1]{Bo Liu}`（elsarticle / CAS 风格），邮箱却在 `Title_Page.tex` 的 `\author[1]{Bo Liu\thanks{Corresponding author. Email: ...}}` 里。这时工具**只按姓名回填邮箱**，不新增作者、不改名字、不动单位；标题对不上同样不碰。回填来源会记进转换记录（`email_source_file`）——投稿系统几乎都强制要通讯邮箱，静默丢掉是最容易踩的坑。
+
 **A4. 元信息写法差异（不用改原稿）**
 
 不同文档类的元信息写法差别很大，工具都认得：
@@ -316,6 +318,18 @@ python scripts/sci.py run ~/Downloads/my-paper.zip --template ~/Downloads/els-ca
 | Elsevier elsarticle / CAS | `\title{...}` | `\begin{abstract}...\end{abstract}` | `\begin{keyword}...\end{keyword}` + `\sep` |
 | Springer sn-jnl | `\title[短]{长}` | `\abstract{...}`（**命令式**） | `\keywords{a, b, c}`（逗号分隔） |
 | IEEE | `\title{...}` | `\begin{abstract}...\end{abstract}` | `\begin{IEEEkeywords}...\end{IEEEkeywords}` |
+
+**Elsevier 的邮箱与通讯标记写在 `\author{}` 外面**，也认得：
+
+```latex
+\author[a]{Bo Liu}\cormark[1]\ead{csbliu@gdut.edu.cn}\credit{Writing - original draft}
+\affiliation[a]{organization={School of Automation, Guangdong University of Technology},
+                city={Guangzhou}, country={China}}
+```
+
+`\ead{}` 是邮箱、`\cormark` / `\corref` 标通讯作者（决定换模板后谁带 `\author*`），
+`\affiliation` 的 `organization= / city= / country=` 是 key=value 写法、走结构化解析。
+只读 `\author{}` 的参数会把这三样全丢掉。
 
 `\title[短标题]{长标题}` 取的是**长标题**（短标题进 `\shorttitle`/`runningtitle` 的映射规则）。
 目标模板带 `research highlights` 环境（Elsevier 等必填）而原稿没有时，会明确列进「需作者确认」而不是留一堆空 `\item` 让你自己发现。
@@ -395,6 +409,8 @@ python scripts/sci.py journals validate my-target-journal
 - `FIG060` —— 完全没解析到图片，图片检查被**跳过**，不是"通过"。
 - `DOC001` —— Word 文档有修订记录。**必须先在 Word 里接受或拒绝全部修订**再投稿。
 - `CVT013` —— 模板压缩包里有**多份**候选主文件、且它们**不构成同族版式**，系统替你选了一份。**必须人工确认选对了**；不对就用 `kit.zip::包内路径` 重新指定。（同族版式如 cas-sc / cas-dc 不报此码，而是各出一份结果包。）
+- `LTX050` —— 结果包里还躺着**其他独立文档**（自己带 `\documentclass`、正文又没引用）。从官网 kit 起步、把正文另存成 `new-Manuscript.tex` 的稿子最容易中招：包里会同时存在官方模板、说明书和另一版式样例。**投稿前建议剔除**，否则 Overleaf 里会出现多个候选主文件（选错就编出模板样例）。
+- `CVT030` —— 正文里有**原文档类专有命令**（如 Elsevier CAS 的 `\printcredits`），目标模板没有定义，已注释保留。不注释会直接编译报 `Undefined control sequence`。
 
 ---
 
@@ -406,6 +422,7 @@ python tests/run_tests.py        # 退出码 0 = 全通过
 
 测试是**缺陷注入型**：夹具里刻意埋了重复题注、缺图、文献不匹配、越界引用等缺陷，验证检查项真的能报出来。另有一组 `test_rule_binding` 逐条验证"配置里设了某规则 → 对应检查真的会触发"，防止规则写了却不生效。
 `test_frontmatter_regression` 钉住真实投稿里踩过的坑（Springer 命令式 `\abstract{}`、模板 `\title` 落在作者块区间内被吞、示例文献库没被替换反而往后追加到 `\end{document}` 之后、独立标题页的作者/单位映射）。
+`test_cas_draft_style` 钉住 Elsevier CAS 风格初稿的四类坑（跨行 `\newcommand` 被截断会把整篇解析带崩、`\ead` 邮箱与 `\cormark` 通讯标记写在 `\author{}` 之外、`organization={...}` 这类 key=value 单位不能按逗号切、与正文无关的独立文档要报 `LTX050`）。
 
 代码结构：
 
@@ -441,5 +458,11 @@ tools/install_skill.py  白名单式组装 + 多客户端安装
 - **模板压缩包只在解析阶段解包**：解到系统临时目录 `sci-trans-templates/`（目录名带内容指纹，模板换版本自动重建；重复使用直接命中缓存）。它不写进你的下载目录，也不进结果包。
 - **同族变体最多展开 4 份**：包里同名不同版式的文件理论上可以很多，全出会淹掉结果包，超过 4 份只取前 4 并给警告。变体展开目前只对 LaTeX 生效（Word 模板包几乎没有多版式主文件）。
 - **作者信息来自独立标题页时**：只在「另一个 `.tex` 的 `\title` 与主文件逐字相同」时才自动补入，并在转换记录里写明取自哪个文件。对不上就留空并列进「需作者确认」，绝不猜。
+- **通讯邮箱单独回填**：主文件已有作者但没人带邮箱时，仍会去标题页按**姓名**配对回填邮箱（只补邮箱，不新增作者/不改名字/不改单位）。标题对不上同样不碰。回填来源记进 `email_source_file`。
+- **导言区补入的三个约束**：①被注释掉的 `%\usepackage{...}` 不算依赖，不迁移；②判定「模板是否已提供」时同时读模板主文件与同目录 `.cls`/`.sty`，类文件里已加载的宏包（如 `natbib`）、已定义的命令（如 `\fnm`、`\theorem`）都不再重复带入；③自定义宏**按花括号配平整条搬运**，跨行的 `\newcommand`（如 `\newcommand*\circled[1]{\tikz[...]{` 换行接 `\node...{#1};}}`）不会被截成半句——截断会留下未闭合的 `{`，把整个文件的后续解析全带崩。
+- **通讯作者标记**：原稿有 `\cormark` / `\corref` 就按它决定谁带 `\author*` 星号；一个都没有时才退化成「有邮箱即通讯作者」，否则修好邮箱采集后会出现「人人都是通讯作者」。
+- **Elsevier 的 `key=value` 单位写法**（`\affiliation[a]{organization={...}, city={...}, country={...}}`）走结构化解析，不按逗号切——`organization` 的值自身就含逗号，按逗号切会产出 `\orgdiv{organization={...}` 这种垃圾并把 `country` 整条丢掉。
+- **正文里的原文档类专有命令会被注释保留**（如 CAS 的 `\printcredits`，定义在 `cas-common.sty`，`sn-jnl.cls` 没有）。只在目标模板确实没定义该命令、且它**独占一行**时才动手；行内出现的一律不动（注释掉半行比编译错误更难查），并记 `CVT030` 警告。
+- **声明扫描先摘掉前言命令的参数**：CAS 的 `\credit{Funding acquisition}` 里带 "funding" 一词，不摘掉会被当成「已提供基金声明」，而 `\credit` 属前言、不会进结果包正文，于是报告误报「丢失 funding」。
 - **嵌套在分组参数里的引用**：`scan_commands` 读到配平的分组会整块跳过，所以 `\textcolor{red}{\autoref{fig:x}}`、`\subfloat[题注\label{sub}]{\includegraphics{...}}` 这类写法额外走一遍不区分位置的补扫。补扫只做**新增**（不改已有结果），并过滤掉 `\ref{#1}` 这种宏体占位。
 - **不认「导言区里对 `\abstract` 的重定义」**：命令式摘要只取 `\begin{document}` 之后出现的那个。
