@@ -38,7 +38,7 @@ from .changes import (
 )
 from .issues import CAT_FILE, CAT_LATEX, IssueBag, Location
 from .journal import JournalConfig
-from .latex_parse import read_group, strip_comments
+from .latex_parse import read_group, resolve_include, strip_comments
 from .util import Log, normalize_ws, read_text, rel, write_text
 
 # 复制项目时跳过的构建产物
@@ -677,20 +677,8 @@ TEX_SPECIALS = {
     "{": r"\{", "}": r"\}",
 }
 
-# 从模板目录复制辅助文件时只认这些后缀 —— 模板常被解压在 Downloads 这类
-# 混杂目录里，无差别复制会污染结果包（也有隐私问题）。
-#
-# 分两类：**LaTeX 支持文件**（文档类/宏包/文献样式，编译必需）一律复制；
-# **图片与 .bib** 只在模板主文件真的引用它们时才复制 —— 官方 kit 里常带
-# 一堆示例 PDF（sample.pdf、doc/、thumbnails/），照单全收会把这些样例
-# 连同稿子一起投出去。
-TEMPLATE_ASSET_SUFFIXES = frozenset({
-    ".cls", ".sty", ".bst", ".bbx", ".cbx", ".def", ".cfg", ".clo", ".fd",
-    ".ldf", ".ist", ".dtx", ".ins",
-})
-TEMPLATE_MEDIA_SUFFIXES = frozenset({
-    ".eps", ".bib", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff",
-})
+# 从模板目录复制辅助文件时的体积上限 —— 模板常被解压在 Downloads 这类混杂
+# 目录里，一个误判的巨文件不该把结果包撑爆。
 TEMPLATE_ASSET_MAX_BYTES = 20 * 1024 * 1024
 
 
@@ -776,113 +764,279 @@ def _resolve_template_path(spec: str, cfg: JournalConfig | None = None) -> Path 
     return _resolve_template(spec, cfg).path
 
 
-def _copy_project(src_root: Path, out: Path, skip: set[Path] | None = None) -> int:
-    """复制原稿项目文件（图片、.bib、章节源码），跳过构建产物。"""
-    skip = skip or set()
-    copied = 0
-    for p in sorted(src_root.rglob("*")):
-        if p.is_dir():
+# --------------------------------------------------------------------------
+# 结果包文件裁剪：只带「编译真的会用到」的文件
+# --------------------------------------------------------------------------
+#
+# 真实投稿目录里躺着一堆与正文无关的东西：官方模板 kit 的示例文档与说明书、
+# `thumbnails/`、废弃图片、没被引用的 `.bib`、作者留档的旧稿副本……无差别复制
+# 会把这些连同稿子一起投出去，也会让 Overleaf 里冒出多个候选主文件。
+#
+# 所以结果包**按引用关系**来收：只带编译真的会读到的文件。
+# 原始稿在 `submission/original/` 里完整保留，这是「交付物裁剪」，不是丢数据。
+
+GRAPHICS_SUFFIXES = frozenset({
+    ".pdf", ".eps", ".ps", ".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff",
+    ".bmp", ".svg",
+})
+BIB_SUFFIXES = frozenset({".bib"})
+BST_SUFFIXES = frozenset({".bst"})
+CLASS_SUFFIXES = frozenset({".cls", ".sty", ".clo", ".ldf", ".fd", ".def", ".cfg"})
+
+_INPUT_REF_RE = re.compile(r"\\(?:input|include|subfile|subfileinclude)\s*\{([^}]*)\}")
+_GRAPHICS_REF_RE = re.compile(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_GRAPHICSPATH_RE = re.compile(r"\\graphicspath\s*\{((?:\s*\{[^{}]*\}\s*)+)\}")
+_BIB_REF_RE = re.compile(r"\\(?:bibliography|addbibresource)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_BST_REF_RE = re.compile(r"\\bibliographystyle\s*\{([^}]*)\}")
+_CLS_REF_RE = re.compile(r"\\documentclass\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_DOCCLASS_OPT_RE = re.compile(r"\\documentclass\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}")
+_LOADCLASS_OPT_RE = re.compile(r"\\LoadClass(?:WithOptions)?\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}")
+_STY_REF_RE = re.compile(r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_LOADCLASS_REF_RE = re.compile(r"\\LoadClass(?:WithOptions)?\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+_MINTED_REF_RE = re.compile(r"\\inputminted\s*(?:\[[^\]]*\])?\s*\{[^{}]*\}\s*\{([^}]*)\}")
+_FILEREAD_REF_RE = re.compile(
+    r"\\(?:lstinputlisting|verbatiminput|VerbatimInput|DTLloaddb)\s*"
+    r"(?:\[[^\]]*\])?\s*\{([^}]*)\}")
+
+
+def _norm_ref_stem(name: str) -> str:
+    """引用名 → 「无扩展名的小写相对路径」，用于和磁盘上的文件对表。
+
+    `EPPL.pdf`、`./EPPL`、`figs\\Fig1` 都各自归一成一个可比较的键。
+    """
+    s = (name or "").strip().replace("\\", "/").strip("\"'")
+    s = re.sub(r"^\./+", "", s)
+    if not s:
+        return ""
+    return Path(s).with_suffix("").as_posix().lower()
+
+
+def _drop_note(dropped: list[str], limit: int = 40) -> str:
+    """把「被裁掉的文件」写成人能读的一行，放进转换记录供作者核对。"""
+    shown = "、".join(dropped[:limit])
+    if len(dropped) > limit:
+        shown += f" 等（共 {len(dropped)} 个）"
+    return shown
+
+
+def _project_files(root: Path) -> list[Path]:
+    """项目根下所有「有资格进结果包」的文件（排除构建产物与元数据目录）。
+
+    判断只针对**相对 root 的路径段**：项目本身可能就躺在 `out/_work/_extracted/`
+    这类目录里，拿绝对路径去比对会把整个项目误判成空。
+    """
+    root = Path(root)
+    out: list[Path] = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
             continue
-        if any(part in (".git", "__pycache__", ".sci-trans", "submission") for part in p.parts):
+        rel = p.relative_to(root)
+        if any(part in (".git", "__pycache__", ".sci-trans", "submission",
+                        "_work", "__MACOSX")
+               for part in rel.parts):
+            continue
+        if any(part.startswith(".") for part in rel.parts):
             continue
         if any(p.match(pat) for pat in SKIP_PATTERNS):
             continue
-        relp = p.relative_to(src_root)
+        out.append(p)
+    return out
+
+
+def _collect_needed_files(root: Path, entry_texts: list[str]) -> set[Path]:
+    r"""从入口文本出发，按「引用关系」收集 `root` 下**真正需要**的文件。
+
+    只认「活着的」引用——注释掉的 `%\includegraphics{...}` 不算（否则会把
+    作者留档备查的示例图一并带进结果包）。规则：
+
+    * `\input` / `\include` 的子文件，**递归**跟进（子文件里的图与文献库同样要带）；
+    * `\includegraphics` 指向的图片（认 `\graphicspath` 前缀，也允许省略扩展名）；
+    * `\bibliography` / `\addbibresource` 指向的 `.bib`；
+    * `\bibliographystyle` 指向的 `.bst`——**类文件里的也算**。Springer 的
+      `sn-jnl.cls` 就是靠 `\if@Mathphys@numrefstyle` 分支去
+      `\bibliographystyle{sn-mathphys-num}`，主文件里根本没有这条命令；
+    * `\documentclass` / `\usepackage` / `\RequirePackage` / `\LoadClass` 指向的
+      `.cls`/`.sty`，并且**继续解析类文件**（它可能再 `\RequirePackage` 本地样式）；
+    * `\lstinputlisting` / `\verbatiminput` / `\inputminted` 这类直接读文件的命令。
+    """
+    root = Path(root)
+    if not root.is_dir():
+        return set()
+
+    all_files = _project_files(root)
+    by_stem: dict[str, list[Path]] = {}
+    by_base: dict[str, list[Path]] = {}
+    for p in all_files:
+        by_stem.setdefault(_norm_ref_stem(p.relative_to(root).as_posix()), []).append(p)
+        by_base.setdefault(_norm_ref_stem(p.name), []).append(p)
+
+    def lookup(name: str, exts: frozenset[str] | None) -> list[Path]:
+        stem = _norm_ref_stem(name)
+        if not stem:
+            return []
+        cands = list(by_stem.get(stem, []))
+        cands += by_base.get(_norm_ref_stem(Path(name.strip().replace("\\", "/")).name), [])
+        seen: set[Path] = set()
+        hits: list[Path] = []
+        for c in cands:
+            if c in seen:
+                continue
+            seen.add(c)
+            if exts is not None and c.suffix.lower() not in exts:
+                continue
+            hits.append(c)
+        return hits
+
+    def _safe_read(p: Path) -> str:
+        try:
+            return read_text(p)
+        except Exception:
+            return ""
+
+    needed: set[Path] = set()
+    parsed: set[Path] = set()
+    graphics_paths: list[str] = []
+    # 入口文本没有对应的磁盘文件（主文件是现生成的），借一个假路径拿到它所在目录
+    queue: list[tuple[str, Path]] = [(t, root / "_entry_.tex") for t in entry_texts if t]
+
+    while queue:
+        text, cur = queue.pop(0)
+        if cur in parsed:
+            continue
+        parsed.add(cur)
+        body = strip_comments(text)
+
+        for m in _GRAPHICSPATH_RE.finditer(body):
+            for sub in re.findall(r"\{([^{}]*)\}", m.group(1)):
+                s = sub.strip().replace("\\", "/").strip("/")
+                if s and s not in graphics_paths:
+                    graphics_paths.append(s)
+
+        # 图片
+        for m in _GRAPHICS_REF_RE.finditer(body):
+            raw = m.group(1).strip()
+            if not raw:
+                continue
+            hits = lookup(raw, GRAPHICS_SUFFIXES)
+            for gp in graphics_paths:
+                hits += lookup(f"{gp}/{raw}", GRAPHICS_SUFFIXES)
+            needed.update(hits)
+
+        # 子文件：递归跟进
+        for m in _INPUT_REF_RE.finditer(body):
+            tgt = resolve_include(m.group(1), root, cur)
+            if tgt and tgt not in needed:
+                needed.add(tgt)
+                queue.append((_safe_read(tgt), tgt))
+
+        # 其余按「引用名 → 后缀」查表
+        for rx, exts, follow in (
+            (_CLS_REF_RE, CLASS_SUFFIXES, True),
+            (_STY_REF_RE, CLASS_SUFFIXES, True),
+            (_LOADCLASS_REF_RE, CLASS_SUFFIXES, True),
+            (_BST_REF_RE, BST_SUFFIXES, False),
+            (_BIB_REF_RE, BIB_SUFFIXES, False),
+            (_MINTED_REF_RE, None, False),
+            (_FILEREAD_REF_RE, None, False),
+        ):
+            for m in rx.finditer(body):
+                for raw in m.group(1).split(","):
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    for f in lookup(raw, exts):
+                        if f in needed:
+                            continue
+                        needed.add(f)
+                        if follow and f.suffix.lower() in (".cls", ".sty", ".clo",
+                                                           ".ldf", ".def"):
+                            queue.append((_safe_read(f), f))
+
+        # 文献样式常常不是正文指定的，而是**文档类选项**选出来的：
+        # `\documentclass[pdflatex,sn-mathphys-num]{sn-jnl}` 对应
+        # `sn-mathphys-num.bst`。类文件若用 `\if@Mathphys@numrefstyle` 这类
+        # 分支才 `\bibliographystyle`，光扫类文件会把整族 `.bst` 都算进来；
+        # 按选项名再兜一道，至少保证选中的那份一定在。
+        for rx in (_DOCCLASS_OPT_RE, _LOADCLASS_OPT_RE):
+            for m in rx.finditer(body):
+                for opt in (m.group(1) or "").split(","):
+                    opt = opt.strip()
+                    if opt:
+                        needed.update(lookup(opt, BST_SUFFIXES))
+
+    # 文献样式收口：期刊类文件常把**整族** `.bst` 各 `\bibliographystyle` 一遍
+    # （Springer 的 sn-jnl.cls 就是 9 个 `\if@Xxx@refstyle` 分支各写一次），
+    # 但真正生效的只有一个——由正文的 `\bibliographystyle` 或文档类选项决定。
+    # 能证明是哪一个时只留那一个；证明不了（如 elsarticle 的 `harv` 选项对应
+    # `harvard.bst`，名字对不上）就退回整族——宁可多带，也不让作者编不过。
+    strong: set[Path] = set()
+    for t in entry_texts:
+        body0 = strip_comments(t)
+        for m in _BST_REF_RE.finditer(body0):
+            for raw in m.group(1).split(","):
+                if raw.strip():
+                    strong.update(lookup(raw.strip(), BST_SUFFIXES))
+        for rx in (_DOCCLASS_OPT_RE, _LOADCLASS_OPT_RE):
+            for m in rx.finditer(body0):
+                for opt in (m.group(1) or "").split(","):
+                    if opt.strip():
+                        strong.update(lookup(opt.strip(), BST_SUFFIXES))
+    if strong:
+        needed = {p for p in needed
+                  if p.suffix.lower() not in BST_SUFFIXES or p in strong}
+    return needed
+
+
+def _copy_needed_files(
+    root: Path,
+    out: Path,
+    needed: set[Path],
+    skip: set[Path] | None = None,
+    log: Log | None = None,
+    label: str = "文件",
+    max_bytes: int | None = None,
+    keep_existing: bool = False,
+) -> tuple[list[str], list[str]]:
+    """把 `needed` 里的文件按原相对路径复制到 `out`。
+
+    返回 `(已复制, 被裁掉)` 两组相对路径。裁掉的是「本项目里存在、但
+    没有被任何活着的引用指向」的文件——示例文档、说明书、缩略图、废弃图片等。
+
+    `keep_existing=True` 用于「原稿已先复制、现在补模板辅助文件」的场景：
+    只要 `out` 里**已经有一个同名文件**（哪怕在别的子目录，例如原稿根目录已有
+    `sn-mathphys-num.bst`、模板又给了 `bst/sn-mathphys-num.bst`），就保留先来的
+    那一份，不再重复放一份进去。
+    """
+    skip = skip or set()
+    existing = {p.name.lower() for p in out.rglob("*") if p.is_file()} if keep_existing else set()
+    copied: list[str] = []
+    dropped: list[str] = []
+    for p in _project_files(root):
+        relp = p.relative_to(root)
         if relp in skip:
+            continue
+        if p not in needed:
+            dropped.append(relp.as_posix())
+            continue
+        if max_bytes is not None:
+            try:
+                if p.stat().st_size > max_bytes:
+                    dropped.append(relp.as_posix())
+                    if log:
+                        log.warn(f"{label}过大已跳过（{p.stat().st_size // 1024} KB）：{relp.as_posix()}")
+                    continue
+            except OSError:
+                continue
+        if keep_existing and p.name.lower() in existing:
+            if log:
+                log.step(f"{label}同名文件已在结果包里，不重复复制：{relp.as_posix()}")
             continue
         target = out / relp
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(p, target)
-        copied += 1
-    return copied
-
-
-def _template_asset_refs(main_text: str) -> set[str]:
-    r"""模板主文件里**实际引用**到的图片 / 文献库文件名（小写 basename）。
-
-    只把 `\includegraphics{...}`、`\bibliography{...}`、`\addbibresource{...}`
-    指向的文件算进来（注释掉的示例不算）。官方 kit 里通常还带一堆示例 PDF、
-    文档目录和缩略图，它们不是编译依赖，不该跟着稿子投出去。
-    """
-    body = strip_comments(main_text)
-    names: set[str] = set()
-    for m in re.finditer(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", body):
-        p = m.group(1).strip().replace("\\", "/")
-        if p:
-            names.add(Path(p).name.lower())
-    for m in re.finditer(r"\\(?:bibliography|addbibresource)\s*\{([^}]*)\}", body):
-        for item in m.group(1).split(","):
-            item = item.strip().replace("\\", "/")
-            if not item:
-                continue
-            base = Path(item).name.lower()
-            names.add(base)
-            if not base.endswith(".bib"):
-                names.add(base + ".bib")
-    return names
-
-
-def _copy_template_assets(tpl_dir: Path, out: Path, log: Log,
-                          refs: set[str] | None = None) -> list[str]:
-    r"""复制模板目录里的 **LaTeX 支持文件**（.cls/.bst/.sty 等）。
-
-    四条约束：
-
-    * **不复制 .tex** —— 结果包的主文件由本模块生成，多带一份模板 .tex
-      会干扰后续「主文件识别」，也会让质检扫到无关文件。
-    * **只复制 LaTeX 支持文件后缀** —— 官方模板常常解压在 `~/Downloads`
-      这类混着大量无关文件的目录里；无差别复制会把整个下载目录塞进结果包，
-      既污染交付物也有隐私问题。
-    * **支持文件限模板主文件同目录** —— kit 常把文档、示例放在 `doc/`、
-      `figs/`、`thumbnails/` 子目录里，LaTeX 默认也不会去子目录找宏包，
-      带进来只是垃圾。同目录下的 `.cls/.bst/.sty` 一律随包，方便作者在同一
-      套模板的单栏/双栏版本之间切换。
-    * **图片与 .bib 只在模板主文件引用时才复制** —— kit 里普遍带
-      `sample.pdf`、`thumbnails/` 这类示例资料，照单全收会让作者把样例
-      文件一起投给期刊，也会在质检里刷出一堆「未被引用的图片」。
-    """
-    refs = refs if refs is not None else set()
-    copied: list[str] = []
-    skipped = 0
-    for p in sorted(tpl_dir.rglob("*")):
-        if p.is_dir() or p.name.startswith(".") or "__MACOSX" in p.parts:
-            continue
-        suffix = p.suffix.lower()
-        if suffix == ".tex":
-            continue
-        sibling = p.parent == tpl_dir
-        # `.bst` 无视目录一律随包：它是编译必需文件（`\documentclass` 选项
-        # 或 `\bibliographystyle` 指向它），而官方 kit 常把它整族放在 `bst/`
-        # 子目录里——按「同目录」规则会全部丢掉，结果包直接编译不过。
-        # 它体积小、不含隐私内容，多带无害。
-        if suffix in TEMPLATE_ASSET_SUFFIXES and (sibling or suffix == ".bst"):
-            pass
-        elif (suffix in TEMPLATE_ASSET_SUFFIXES or suffix in TEMPLATE_MEDIA_SUFFIXES) \
-                and p.name.lower() in refs:
-            pass
-        else:
-            skipped += 1
-            continue
-        try:
-            if p.stat().st_size > TEMPLATE_ASSET_MAX_BYTES:
-                skipped += 1
-                log.warn(f"模板辅助文件过大已跳过（{p.stat().st_size // 1024} KB）：{p.name}")
-                continue
-        except OSError:
-            continue
-        target = out / p.relative_to(tpl_dir)
-        if target.exists():
-            log.warn(f"模板辅助文件已存在同名文件，保留原稿版本：{target.name}")
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(p, target)
-        copied.append(str(p.relative_to(tpl_dir)))
-    if skipped:
-        log.step(
-            f"模板目录里另有 {skipped} 个文件未复制"
-            "（非 LaTeX 支持文件，或模板主文件并未引用，避免污染结果包）"
-        )
-    return copied
+        copied.append(relp.as_posix())
+        existing.add(p.name.lower())
+    return copied, dropped
 
 
 def _template_support_texts(tpl_head: str, tpl_dir: Path | None) -> list[str]:
@@ -1646,7 +1800,7 @@ def convert_latex_template(
 
     保留模板的 `\\documentclass` 与宏包体系（即期刊真正要求的版式），
     把原稿的标题、作者、单位、摘要、关键词、正文、声明、文献命令移植进去；
-    模板目录里的 `.cls`/`.bst`/`.sty` 一并复制，使结果包可独立编译。
+    结果包里只放**编译真的会读到**的文件（见 `_collect_needed_files`）。
     """
     tpl_path = Path(template)
     out = Path(out_dir)
@@ -1663,20 +1817,6 @@ def convert_latex_template(
         raise TemplateError(
             f"模板 {tpl_path.name} 里找不到 \\begin{{document}}，无法定位正文插入点"
         )
-
-    # ---- 1. 复制原稿项目（主文件除外，稍后由本函数生成）----
-    copied = _copy_project(src_root, out, skip={main_rel})
-    log.step(f"已复制 {copied} 个原稿文件到 {out}")
-
-    # ---- 2. 复制模板辅助文件（.cls/.bst/.sty 等）----
-    aux = _copy_template_assets(tpl_path.parent, out, log, _template_asset_refs(tpl_text))
-    if aux:
-        changes.record(
-            CH_ASSET, "模板辅助文件", after=f"{len(aux)} 个（{', '.join(aux[:6])}）",
-            reason="目标模板的文档类/文献样式文件随结果包一起提供，保证可独立编译",
-            file=main_rel.as_posix(), rule_source=cfg.rule_source("output.latex.template"),
-        )
-        log.step(f"已复制 {len(aux)} 个模板辅助文件（.cls/.bst 等）")
 
     # ---- 3. 定位模板结构 ----
     i_doc_end = doc_m.end()
@@ -1752,6 +1892,12 @@ def convert_latex_template(
     tail_after = _retarget_bibliography(
         tail_after, ms, cfg, main_rel.as_posix(), changes,
     )
+    # 文献区同样过一遍原文档类专有命令：有的稿子把 `\printcredits` 写在
+    # `\bibliography` **之后**，落在正文区之外，只处理正文会漏掉。
+    tail_after = op_neutralize_class_commands(
+        tail_after, _collect_provided_cmds(tpl_text, tpl_path.parent),
+        main_rel.as_posix(), cfg, changes, bag,
+    )
 
     # ---- 9. 章节编号策略 ----
     body_new = op_section_numbering(body_new, cfg, main_rel.as_posix(), changes)
@@ -1781,6 +1927,47 @@ def convert_latex_template(
     merged = "\n\n".join(p for p in parts if p) + "\n"
     if "\\end{document}" not in merged:
         merged = merged.rstrip("\n") + "\n\n\\end{document}\n"
+
+    # ---- 12. 按引用裁剪结果包文件 ----
+    # 最终文本已经定稿，现在它才是「该带哪些文件」的唯一依据：原稿侧与模板侧
+    # 都只复制被它（及其递归引用到的子文件、类文件）真正指向的东西。
+    copied, dropped = _copy_needed_files(
+        src_root, out, _collect_needed_files(src_root, [merged]),
+        skip={main_rel}, log=log, label="原稿文件",
+    )
+    log.step(f"已复制 {len(copied)} 个原稿文件到 {out}")
+    if dropped:
+        changes.record(
+            CH_ASSET, "结果包文件裁剪",
+            before=f"原稿目录 {len(dropped) + len(copied)} 个文件",
+            after=f"只带 {len(copied)} 个（正文真正引用到的）",
+            reason="未被任何活着的引用指向的文件不进结果包——官方模板 kit 的示例文档、"
+                   "说明书、缩略图、废弃图片、未引用的 .bib 都会污染交付物，"
+                   "也会让 Overleaf 里出现多个候选主文件。原稿完整副本仍在 original/ 里。"
+                   f"本次未带：{_drop_note(dropped)}",
+            file=main_rel.as_posix(), rule_source=cfg.rule_source("output.latex.template"),
+        )
+        log.step(f"已裁掉 {len(dropped)} 个未被引用的原稿文件（原件保留在 original/）："
+                 f"{'、'.join(dropped[:8])}{' …' if len(dropped) > 8 else ''}")
+
+    aux_needed = _collect_needed_files(tpl_path.parent, [merged])
+    aux_copied, aux_dropped = _copy_needed_files(
+        tpl_path.parent, out, aux_needed, log=log,
+        label="模板辅助文件", max_bytes=TEMPLATE_ASSET_MAX_BYTES, keep_existing=True,
+    )
+    if aux_copied:
+        changes.record(
+            CH_ASSET, "模板辅助文件", after=f"{len(aux_copied)} 个（{'、'.join(aux_copied[:6])}）",
+            reason="目标模板的文档类/文献样式文件随结果包一起提供，保证可独立编译；"
+                   "模板包里没被引用到的示例文档、说明书、缩略图一律不带",
+            file=main_rel.as_posix(), rule_source=cfg.rule_source("output.latex.template"),
+        )
+        log.step(f"已复制 {len(aux_copied)} 个模板辅助文件（.cls/.bst 等）")
+    if aux_dropped:
+        log.step(
+            f"模板目录里另有 {len(aux_dropped)} 个文件未复制"
+            "（非 LaTeX 支持文件，或模板主文件并未引用，避免污染结果包）"
+        )
 
     out_main = out / main_rel
     write_text(out_main, merged)
@@ -1864,35 +2051,62 @@ def convert_latex(
     src_main = Path(ms.main_file)
     main_rel = src_main.relative_to(src_root)
 
-    # ---- 1. 复制项目 ----
-    copied = _copy_project(src_root, out)
-    log.step(f"已复制 {copied} 个项目文件到 {out}")
-
-    # ---- 2. 逐文件定点手术 ----
+    # ---- 1. 先在内存里把主文件的定点手术做完 ----
+    # 顺序上必须先做完手术再决定「带哪些文件」：`op_documentclass` 会把文档类
+    # 换成目标期刊的，原稿自己的 `.cls`/`.sty` 就再也不需要了。
     pkgs_add = list(adapter.get("packages_add") or [])
     pkgs_remove = list(adapter.get("packages_remove") or [])
     renames = (adapter.get("adapter") or {}).get("command_renames") or {}
 
+    main_rel_name = main_rel.as_posix()
+    main_final = read_text(src_main)
+    main_final = op_documentclass(main_final, adapter.get("documentclass", ""), list(adapter.get("class_options") or []), main_rel_name, cfg, changes)
+    main_final = op_packages(main_final, pkgs_add, pkgs_remove, main_rel_name, cfg, changes)
+    main_final = op_metadata(main_final, ms, cfg, main_rel_name, changes)
+    main_final = op_abstract(main_final, cfg, main_rel_name, changes)
+    main_final = op_caption_labels(main_final, cfg, main_rel_name, changes)
+    main_final = op_bibliography(main_final, cfg, main_rel_name, changes)
+    main_final = op_declarations(main_final, ms, cfg, main_rel_name, changes)
+    main_final = op_section_numbering(main_final, cfg, main_rel_name, changes)
+    for old, new in renames.items():
+        if old in main_final:
+            n = main_final.count(old)
+            main_final = main_final.replace(old, new)
+            changes.record(
+                CH_STRUCTURE, f"命令重命名 {old} → {new}", before=f"{n} 处",
+                reason="目标期刊模板使用不同的命令名（期刊适配器配置）",
+                file=main_rel_name, rule_source=cfg.rule_source("output.latex.adapter"),
+            )
+
+    # ---- 2. 按引用裁剪并复制项目文件 ----
+    copied, dropped = _copy_needed_files(
+        src_root, out, _collect_needed_files(src_root, [main_final]),
+        skip={main_rel}, log=log, label="项目文件",
+    )
+    log.step(f"已复制 {len(copied)} 个项目文件到 {out}")
+    if dropped:
+        changes.record(
+            CH_ASSET, "结果包文件裁剪",
+            before=f"项目目录 {len(dropped) + len(copied)} 个文件",
+            after=f"只带 {len(copied)} 个（正文真正引用到的）",
+            reason="未被任何活着的引用指向的文件不进结果包（示例文档、说明书、缩略图、"
+                   "废弃图片、未引用的 .bib…）。原稿完整副本仍在 original/ 里。"
+                   f"本次未带：{_drop_note(dropped)}",
+            file=main_rel_name, rule_source=cfg.rule_source("output.latex.adapter"),
+        )
+        log.step(f"已裁掉 {len(dropped)} 个未被引用的文件（原件保留在 original/）："
+                 f"{'、'.join(dropped[:8])}{' …' if len(dropped) > 8 else ''}")
+
+    write_text(out / main_rel, main_final)
+
+    # ---- 3. 其余 .tex（被 \input 进来的章节文件）继续做章节编号/重命名 ----
     for p in sorted(out.rglob("*.tex")):
+        if p == out / main_rel:
+            continue
         rel_name = rel(p, out)
         text = read_text(p)
         original = text
-        try:
-            is_main = p.relative_to(out) == main_rel
-        except ValueError:
-            is_main = False
-
-        if is_main:
-            text = op_documentclass(text, adapter.get("documentclass", ""), list(adapter.get("class_options") or []), rel_name, cfg, changes)
-            text = op_packages(text, pkgs_add, pkgs_remove, rel_name, cfg, changes)
-            text = op_metadata(text, ms, cfg, rel_name, changes)
-            text = op_abstract(text, cfg, rel_name, changes)
-            text = op_caption_labels(text, cfg, rel_name, changes)
-            text = op_bibliography(text, cfg, rel_name, changes)
-            text = op_declarations(text, ms, cfg, rel_name, changes)
-
         text = op_section_numbering(text, cfg, rel_name, changes)
-
         for old, new in renames.items():
             if old in text:
                 n = text.count(old)
@@ -1902,11 +2116,10 @@ def convert_latex(
                     reason="目标期刊模板使用不同的命令名（期刊适配器配置）",
                     file=rel_name, rule_source=cfg.rule_source("output.latex.adapter"),
                 )
-
         if text != original:
             write_text(p, text)
 
-    # ---- 3. 结果 ----
+    # ---- 4. 结果 ----
     out_main = out / main_rel
     if not out_main.is_file():
         bag.error(

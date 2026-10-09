@@ -228,16 +228,17 @@ submission/journals/
 
 ```
 out/submission/
-├── original/                      # 原稿副本，不可覆盖，留证
+├── original/                      # 原稿**完整**副本，不可覆盖，留证
+│                                  # （结果包里被裁掉的文件也在这里，随时可拿回来）
 ├── journals/<期刊id>/
-│   ├── src/                       # 转换后的源文件（LaTeX 项目 / 或 docx）
+│   ├── src/                       # 转换后的源文件：只含正文真正引用到的文件
 │   ├── manuscript_formatted.docx  # Word 流水线的转换结果
 │   ├── figures/                   # 抽取出的图片
 │   ├── preview.pdf                # PDF 预览（工具链可用时）
 │   ├── report.md                  # 质量检查报告（转换后）
 │   ├── report-baseline.md         # 质量检查报告（转换前基线）
 │   ├── diff.md                    # 差异报告
-│   ├── conversion-log.md          # 转换记录（含"未做的改动"）
+│   ├── conversion-log.md          # 转换记录（含"未做的改动"与"本次未带的文件"）
 │   ├── result.json                # 结构化结果，便于脚本消费
 │   └── README.md                  # 本包索引
 └── manifest.json                  # 累积清单：输入哈希、配置哈希、工具版本
@@ -274,7 +275,23 @@ python scripts/sci.py run paper/main.tex --template ~/Downloads/elsarticle-templ
 ```
 
 模板目录里的 `.cls` / `.bst` / `.sty` 会自动复制进结果包，保证结果包**可独立编译**。
-复制规则：**模板主文件同目录下的 LaTeX 支持文件**一律随包；图片与 `.bib` 只在模板主文件真的引用它们时才带（官方 kit 里普遍塞着 `sample.pdf`、`doc/`、`thumbnails/`，照单全收会让你把这些样例连同稿子一起投出去）。
+但结果包**不是**把原稿目录整份搬过去——它只装**编译真的会读到**的文件：
+
+- 保留：被正文（含 `\input` 进来的子文件、类文件）引用到的**图片**、**`.bib`**、
+  **`.cls`/`.sty`/`.bst`**，以及正文本身；
+- 剔除：官方 kit 的**示例文档**（`cas-dc-sample.tex`）、**说明书**（`doc/elsdoc-cas.tex`）、
+  **缩略图**（`thumbnails/`）、**废弃图片**、**没被引用的 `.bib`**、**旧稿副本**
+  （`Response_to_Reviewers.tex`、`Title_Page.tex`）等一切「正文一个字都没提」的文件。
+
+判定是**递归**的：`\documentclass{cas-sc}` → `cas-sc.cls` → `\RequirePackage{cas-common}` →
+`cas-common.sty`，只看正文会漏掉最后一层。注释掉的引用不算引用（`%\includegraphics{旧图}`
+不会把旧图带进来）。文献样式若由**文档类选项**选出（Springer 的 `sn-mathphys-num`），
+按选项名也认。
+
+**剔除 ≠ 丢数据**：原稿（含所有被剔除的文件）完整躺在 `submission/original/` 里，
+转换记录里会逐条列出「本次未带：…」，需要哪份直接拿回来即可。质检里的
+`LTX020`（图片缺失）/ `REF002`（`.bib` 缺失）是这条裁剪的安全网——真漏带了会报错。
+
 `--template` 必须指向**主文件**（LaTeX 的 `.tex`、Word 的 `.docx`）；指错了会报 `CVT012` 并降级回定点手术。
 
 **A2. 原稿和模板都是压缩包**（Overleaf 导出 + 官网 kit）
@@ -286,7 +303,7 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
     --template '~/Downloads/elsarticle.zip::elsarticle-template-num.tex' -o out
 ```
 
-两个包都不用手工解压，结果与「手工解压后指向主文件」**逐字节一致**。包内的 `.cls`/`.bst` 照样随结果包提供，`readme`、作者须知、`__MACOSX` 垃圾不复制。
+两个包都不用手工解压，结果与「手工解压后指向主文件」**逐字节一致**。包内的 `.cls`/`.bst` 照样随结果包提供，`readme`、作者须知、`__MACOSX` 垃圾不复制；原稿包里混进来的模板 kit（示例文档、说明书、缩略图）也会被裁掉，只留正文真正引用到的文件。
 
 **CAS 这种单栏/双栏双模板的包，默认出两份结果**（`template-only-sc/` 和 `template-only-dc/`），可以直接对比排版效果再决定投哪一版。只想出一份就用 `::` 明确指定：
 
@@ -411,7 +428,7 @@ python scripts/sci.py journals validate my-target-journal
 - `FIG060` —— 完全没解析到图片，图片检查被**跳过**，不是"通过"。
 - `DOC001` —— Word 文档有修订记录。**必须先在 Word 里接受或拒绝全部修订**再投稿。
 - `CVT013` —— 模板压缩包里有**多份**候选主文件、且它们**不构成同族版式**，系统替你选了一份。**必须人工确认选对了**；不对就用 `kit.zip::包内路径` 重新指定。（同族版式如 cas-sc / cas-dc 不报此码，而是各出一份结果包。）
-- `LTX050` —— 结果包里还躺着**其他独立文档**（自己带 `\documentclass`、正文又没引用）。从官网 kit 起步、把正文另存成 `new-Manuscript.tex` 的稿子最容易中招：包里会同时存在官方模板、说明书和另一版式样例。**投稿前建议剔除**，否则 Overleaf 里会出现多个候选主文件（选错就编出模板样例）。
+- `LTX050` —— 结果包里还躺着**其他独立文档**（自己带 `\documentclass`、正文又没引用）。正常情况**不该出现**：结果包已按引用裁剪，无关文件根本不会被复制。真出现了说明有文件是**经 `\input` 被正文拉进来的**，或裁剪漏判了——按报告里的文件名核对，必要时手动剔除（Overleaf 里出现多个候选主文件，选错就编出模板样例）。
 - `CVT030` —— 正文里有**原文档类专有命令**（如 Elsevier CAS 的 `\printcredits`），目标模板没有定义，已注释保留。不注释会直接编译报 `Undefined control sequence`。
 
 ---
@@ -424,7 +441,8 @@ python tests/run_tests.py        # 退出码 0 = 全通过
 
 测试是**缺陷注入型**：夹具里刻意埋了重复题注、缺图、文献不匹配、越界引用等缺陷，验证检查项真的能报出来。另有一组 `test_rule_binding` 逐条验证"配置里设了某规则 → 对应检查真的会触发"，防止规则写了却不生效。
 `test_frontmatter_regression` 钉住真实投稿里踩过的坑（Springer 命令式 `\abstract{}`、模板 `\title` 落在作者块区间内被吞、示例文献库没被替换反而往后追加到 `\end{document}` 之后、独立标题页的作者/单位映射）。
-`test_cas_draft_style` 钉住 Elsevier CAS 风格初稿的四类坑（跨行 `\newcommand` 被截断会把整篇解析带崩、`\ead` 邮箱与 `\cormark` 通讯标记写在 `\author{}` 之外、`organization={...}` 这类 key=value 单位不能按逗号切、与正文无关的独立文档要报 `LTX050`）。
+`test_cas_draft_style` 钉住 Elsevier CAS 风格初稿的四类坑（跨行 `\newcommand` 被截断会把整篇解析带崩、`\ead` 邮箱与 `\cormark` 通讯标记写在 `\author{}` 之外、`organization={...}` 这类 key=value 单位不能按逗号切、`\printcredits` 要注释并记 `CVT030`）。
+`test_package_trimming` 钉住结果包裁剪（`.cls` 引的 `.sty` 要递归带出、注释掉的引用不算引用、kit 垃圾一律不进包、文档类选项选出的 `.bst` 也认、原稿完整备份在 `original/`）。
 
 代码结构：
 

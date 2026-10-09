@@ -1,0 +1,13 @@
+%% cas-common.sty 的最小替身（测试夹具用）。
+%% 它定义 \printcredits —— 正文里那条命令只有原文档类体系才有，
+%% 换成 Springer 模板后必须被注释掉（CVT030）。
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{cas-common}[2024/12/13 test stub]
+\newcommand{\printcredits}{}
+\newcommand{\cormark}[1][]{}
+\newcommand{\ead}[1]{}
+\newcommand{\credit}[1]{}
+\newcommand{\affiliation}[2][]{}
+\newcommand{\cortext}[2][]{}
+\newcommand{\fntext}[2][]{}
+\endinput

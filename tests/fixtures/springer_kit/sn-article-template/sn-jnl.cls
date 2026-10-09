@@ -32,3 +32,8 @@
 \newtheorem{theorem}{Theorem}
 \newtheorem{lemma}[theorem]{Lemma}
 \newtheorem{definition}{Definition}
+
+%% 类文件内部选定文献样式（真实 sn-jnl.cls 用 \if@Mathphys@numrefstyle 等分支，
+%% 每个分支各 \bibliographystyle 一次）。这意味着 `bst/` 里的 .bst 虽然正文
+%% 一个字都没提，也是**编译必需**文件。
+\bibliographystyle{sn-mathphys-num}

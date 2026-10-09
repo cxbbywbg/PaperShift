@@ -284,12 +284,19 @@ def _run_one_target(
     if fmt == M.FMT_LATEX:
         src_root = Path(ms_before.main_file).parent
         for p in sorted(src_root.rglob("*")):
-            if p.is_file() and not any(part in (".git", "__pycache__", "_work") for part in p.parts):
-                relp = p.relative_to(src_root)
-                tgt = original_dir / relp
-                tgt.parent.mkdir(parents=True, exist_ok=True)
-                if not tgt.exists():
-                    shutil.copy2(p, tgt)
+            if not p.is_file():
+                continue
+            # 只按**相对路径**判断该不该跳过：项目本身可能就躺在
+            # `out/_work/_extracted/` 里，拿绝对路径比对会把整份原稿都跳过，
+            # 于是 original/ 一直是空的（而它本该是"不可覆盖的原始论文"）。
+            relp = p.relative_to(src_root)
+            if any(part in (".git", "__pycache__", "_work", "submission")
+                   for part in relp.parts):
+                continue
+            tgt = original_dir / relp
+            tgt.parent.mkdir(parents=True, exist_ok=True)
+            if not tgt.exists():
+                shutil.copy2(p, tgt)
         input_desc = f"LaTeX 项目（主文件 {Path(ms_before.main_file).name}）"
     else:
         tgt = original_dir / Path(ms_before.source_path).name

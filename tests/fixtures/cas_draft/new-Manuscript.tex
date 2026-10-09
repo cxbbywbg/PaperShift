@@ -7,7 +7,8 @@
 %%      `\author{}` **外面**，只读参数就两个字段全丢；
 %%   3. `\affiliation[a]{organization={...}, city={...}, country={...}}` ——
 %%      key=value 写法不能按逗号切（organization 的值自身含逗号）；
-%%   4. 包里混着官方 kit 的其他主文件与说明书（LTX050）。
+%%   4. 包里混着官方 kit 的其他主文件、说明书、缩略图（LTX050）——
+%%      这些「正文一个字都没提」的文件不该进结果包。
 
 \documentclass[a4paper,fleqn]{cas-sc}
 
@@ -73,6 +74,17 @@ candidate sample is computed with respect to the class-conditional importance
 vector. Features with high discriminative power retain their weights, while
 irrelevant or noisy features are strictly suppressed \cite{li2018r}.
 
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\linewidth]{fig1.png}
+\caption{Class-aware weighted similarity.}\label{fig:similarity}
+\end{figure}
+
+% 留档备查的旧图（**注释掉的引用不算引用**，不该被带进结果包）
+% \includegraphics{unused_fig.png}
+
+Figure~\ref{fig:similarity} shows the weighted similarity computation.
+
 \section{Conclusion}\label{conclusion}
 
 We presented an explainability-guided framework for partial privileged
@@ -83,6 +95,10 @@ learning. Future work will extend the framework to multi-modal settings.
 The authors declare that they have no known competing financial interests or
 personal relationships that could have appeared to influence the work reported
 in this paper.
+
+% 原文档类专有命令（定义在 cas-common.sty 里，Springer 的 sn-jnl.cls 没有）——
+% 留在正文里编译必挂，转换时应注释保留并记 CVT030。
+\printcredits
 
 \bibliographystyle{cas-model2-names}
 \bibliography{references}

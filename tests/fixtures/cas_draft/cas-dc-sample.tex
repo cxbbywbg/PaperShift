@@ -1,0 +1,16 @@
+%% 官方 kit 里的**另一版式示例**（正文并未引用）。
+%% 它自己带 \documentclass，混在结果包里会让 Overleaf 冒出多个候选主文件。
+%% 期望：不进结果包；万一漏进去了也要被 LTX050 报出来。
+\documentclass[a4paper,fleqn]{cas-dc}
+\begin{document}
+\title{Double column sample title}
+\author[a]{Sample Author}
+\affiliation[a]{organization={Sample Organization}}
+\begin{abstract}
+Double column sample abstract.
+\end{abstract}
+\maketitle
+\section{Introduction}
+Double column sample body.
+\bibliography{cas-refs}
+\end{document}

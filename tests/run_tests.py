@@ -1215,9 +1215,36 @@ def test_cas_draft_style() -> None:
           and "\\orgname{Guangdong University of Technology}" in t
           and "\\city{Guangzhou}" in t and "\\country{China}" in t,
           "\n".join(l for l in t.splitlines() if l.startswith("\\affil")))
-    check("CAS：与正文无关的独立文档被 LTX050 报出（不让作者把模板说明书投出去）",
-          any(i.get("code") == "LTX050" for i in res.get("issues", [])),
+    # ---- 结果包裁剪：只带正文真正引用到的文件 ----
+    # 真实投稿目录里常混着官方模板 kit 的示例文档、说明书、缩略图、废弃图片、
+    # 没被引用的 .bib。原实现**原样复制**，作者一不小心就把模板样例连同稿子
+    # 一起投出去，Overleaf 里还会冒出多个候选主文件。
+    pkg = {p.relative_to(src).as_posix() for p in src.rglob("*") if p.is_file()}
+    check("CAS：正文引用到的图与文献库进了结果包",
+          "fig1.png" in pkg and "references.bib" in pkg, str(sorted(pkg)))
+    check("CAS：注释掉的 \\includegraphics 不算引用（留档旧图不进包）",
+          "unused_fig.png" not in pkg, str(sorted(pkg)))
+    check("CAS：原稿自带的模板 kit 垃圾不进结果包（示例/说明书/缩略图）",
+          not ({"cas-sc-template.tex", "cas-dc-sample.tex",
+                "doc/elsdoc-cas.tex", "thumbnails/cas-email.jpeg"} & pkg),
+          str(sorted(pkg)))
+    check("CAS：换成模板的文档类后，原文档类的 .cls/.sty/.bst 不再随包",
+          not ({"cas-sc.cls", "cas-common.sty", "cas-model2-names.bst"} & pkg),
+          str(sorted(pkg)))
+    check("CAS：结果包不该再有 LTX050（无关文档根本没进来）",
+          not any(i.get("code") == "LTX050" for i in res.get("issues", [])),
           str(sorted({i.get("code") for i in res.get("issues", [])})))
+    check("CAS：原文档类专有命令 \\printcredits 被注释并记 CVT030",
+          "% \\printcredits" in t
+          and any(i.get("code") == "CVT030" for i in res.get("issues", [])),
+          str(sorted({i.get("code") for i in res.get("issues", [])})))
+    # 裁剪 ≠ 丢数据：原稿（含那些没进结果包的文件）必须完整躺在 original/ 里。
+    orig = Path(res["submission_dir"]) / "original"
+    orig_files = {p.relative_to(orig).as_posix() for p in orig.rglob("*") if p.is_file()}
+    check("CAS：原稿完整备份在 submission/original/（裁剪不等于丢数据）",
+          "cas-dc-sample.tex" in orig_files and "thumbnails/cas-email.jpeg" in orig_files
+          and "unused_fig.png" in orig_files and "new-Manuscript.tex" in orig_files,
+          f"{len(orig_files)} 个文件：{sorted(orig_files)[:8]}")
     # 单位只是换了命令体系（CAS 的 key=value → Springer 的 \orgdiv/\city），
     # 内容完全一致。差异报告若按字符串比会报「单位被改了」，把作者吓一跳。
     check("CAS：单位归一化后两种写法等价（不再误报「单位被改了」）",
@@ -1230,6 +1257,66 @@ def test_cas_draft_style() -> None:
     check("CAS：转换后差异报告的元信息里不再出现「单位」变更",
           "affiliations" not in ((res.get("diff") or {}).get("metadata") or {}),
           str(list(((res.get("diff") or {}).get("metadata") or {}).keys())))
+
+
+def test_package_trimming() -> None:
+    r"""结果包只带「编译真的会读到」的文件。
+
+    回归背景：真实投稿目录里混着官方模板 kit 的示例文档、说明书、缩略图、
+    废弃图片、没被引用的 `.bib`。原实现把它们**原样复制**进结果包 —— 作者一
+    不小心就把模板样例连同稿子一起投出去，Overleaf 里还会冒出多个候选主文件。
+
+    裁剪必须**递归**：`\documentclass{cas-sc}` → `cas-sc.cls` →
+    `\RequirePackage{cas-common}` → `cas-common.sty`，只看正文会漏掉最后一层。
+    """
+    print("\n== 结果包按引用裁剪 ==")
+    from sci_core.latex_build import _collect_needed_files, _copy_needed_files  # noqa: PLC0415
+
+    fix = ROOT / "tests" / "fixtures" / "cas_draft"
+    main_text = (fix / "new-Manuscript.tex").read_text(encoding="utf-8")
+    rels = {p.relative_to(fix).as_posix() for p in _collect_needed_files(fix, [main_text])}
+
+    check("裁剪：\\documentclass 引的 .cls 进包，并递归带出它 \\RequirePackage 的 .sty",
+          "cas-sc.cls" in rels and "cas-common.sty" in rels, str(sorted(rels)))
+    check("裁剪：\\bibliographystyle 引的 .bst 进包",
+          "cas-model2-names.bst" in rels, str(sorted(rels)))
+    check("裁剪：\\includegraphics 引的图进包；注释掉的那张不进",
+          "fig1.png" in rels and "unused_fig.png" not in rels, str(sorted(rels)))
+    check("裁剪：\\bibliography 引的 .bib 进包",
+          "references.bib" in rels, str(sorted(rels)))
+    check("裁剪：没被任何引用指向的 kit 文件一律不进包",
+          not ({"cas-sc-template.tex", "cas-dc-sample.tex",
+                "doc/elsdoc-cas.tex", "thumbnails/cas-email.jpeg"} & rels),
+          str(sorted(rels)))
+
+    # 文档类**选项**选出的 .bst：类文件里若用 `\if@...` 分支才 \bibliographystyle，
+    # 光扫类文件认不全，得按选项名再兜一道。
+    probe = OUT / "_trim_probe"
+    if probe.exists():
+        shutil.rmtree(probe, ignore_errors=True)
+    (probe / "bst").mkdir(parents=True)
+    (probe / "mystyle.cls").write_text("\\LoadClass{article}\n", encoding="utf-8")
+    (probe / "bst" / "mystyle-num.bst").write_text("ENTRY{}{}{}\n", encoding="utf-8")
+    (probe / "bst" / "mystyle-ay.bst").write_text("ENTRY{}{}{}\n", encoding="utf-8")
+    (probe / "unused-note.txt").write_text("junk\n", encoding="utf-8")
+    entry = "\\documentclass[mystyle-num]{mystyle}\n\\begin{document}x\\end{document}\n"
+    probe_names = {p.name for p in _collect_needed_files(probe, [entry])}
+    check("裁剪：文档类选项选出的 .bst 也认（类文件没写 \\bibliographystyle 时）",
+          "mystyle-num.bst" in probe_names and "mystyle.cls" in probe_names
+          and "mystyle-ay.bst" not in probe_names,
+          str(sorted(probe_names)))
+
+    # 复制时只落需要的，其余计入「被裁掉」清单
+    dest = OUT / "_trim_out"
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True)
+    copied, dropped = _copy_needed_files(fix, dest, _collect_needed_files(fix, [main_text]))
+    check("裁剪：复制只落需要的文件，其余进「被裁掉」清单（可告知作者）",
+          sorted(copied) == ["cas-common.sty", "cas-model2-names.bst", "cas-sc.cls",
+                             "fig1.png", "references.bib"]
+          and "unused_fig.png" in dropped and "cas-dc-sample.tex" in dropped,
+          f"copied={sorted(copied)} dropped={sorted(dropped)}")
 
 
 def test_rule_binding() -> None:
@@ -1319,6 +1406,7 @@ def main() -> int:
                test_template_mode, test_template_archive, test_main_tex_pick,
                test_frontmatter_regression, test_springer_template,
                test_preamble_carry, test_email_backfill, test_cas_draft_style,
+               test_package_trimming,
                test_rule_binding, test_issue_code_hygiene):
         try:
             fn()

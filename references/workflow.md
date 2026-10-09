@@ -41,8 +41,9 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 处理规则：
 
 - 自动解包并挑出包内主文件（`.tex` / `.docx`），**结果与手工解压后指向主文件逐字节一致**。
-- 包内**主文件同目录**的 `.cls` / `.bst` / `.sty` 随结果包提供，保证可独立编译；图片与 `.bib` 只在模板主文件真的引用它们时才带。
+- 包内被结果包主文件**引用到**的 `.cls` / `.bst` / `.sty` 随结果包提供，保证可独立编译；模板 kit 里的示例文档、说明书、缩略图、没被引用的图片与 `.bib` 都不带。
 - 包内 `readme`、作者须知、`doc/`、`thumbnails/`、`__MACOSX` 等示例资料不复制，避免污染结果包（也避免作者把样例 PDF 一起投给期刊）。
+- **原稿包里混进来的模板 kit 也会被裁掉**：结果包只装编译真的会读到的文件——被引用到的图片、`.bib`、`.cls`/`.sty`/`.bst`。示例文档（`cas-dc-sample.tex`）、说明书（`doc/elsdoc-cas.tex`）、缩略图、废弃图片、没被引用的 `.bib`、旧稿副本（`Response_to_Reviewers.tex`、`Title_Page.tex`）一律不带。判定**递归**：`\documentclass{cas-sc}` → `cas-sc.cls` → `\RequirePackage{cas-common}` → `cas-common.sty`；注释掉的引用不算引用；文献样式若由**文档类选项**选出（Springer 的 `sn-mathphys-num`）按选项名也认。原稿**完整**副本留在 `submission/original/`，转换记录里逐条列出「本次未带：…」——剔除 ≠ 丢数据。
 - **包内同族版式默认各出一份**：文件名剥掉版式标记（`sc`/`dc`、`1col`/`2col`、`num`/`harv`…）后**同名同目录**的算一族，每份各产出一个结果包（`journals/template-only-sc/`、`...-dc/`）。Elsevier CAS 的单栏双栏、elsarticle 的数字制著者年制都是这一形态，一次跑完可直接对比。包内有多族时挑「最像模板本体」的那族（`cas-?-template` 优先于 `cas-?-sample`）；同族变体最多展开 4 份，只对 LaTeX 生效。
 - 包内**只有一份**主文件 → 直接用。包内有多份候选但**不构成同族** → 报 `CVT013` 并列出候选，**必须人工过目**。
 - 用 `kit.zip::包内路径` 指定 → 只出指定那一份，不展开变体。
@@ -61,7 +62,7 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 - **作者信息在独立标题页时**：主文件没有 `\author` 才会去找同目录另一个 `.tex`，且只认 `\title` 与主文件逐字相同的那一个；补入后在转换记录里写明取自哪个文件。
 - **主文件已有作者但缺通讯邮箱时**，仍会去标题页**按姓名**配对回填邮箱（只补邮箱，不新增作者、不改名字/单位，标题对不上不碰），来源记入 `email_source_file`。投稿系统几乎都强制要通讯邮箱，静默丢掉是最容易踩的坑。
 - **Elsevier 的 `\ead{}` / `\cormark` 在 `\author{}` 外面**，要单独采集；`\cormark`/`\corref` 决定谁带 `\author*`。`\affiliation[a]{organization={...}, city={...}, country={...}}` 是 key=value 写法，走结构化解析而非按逗号切。
-- **`LTX050`：结果包里若还有自己带 `\documentclass`、正文又没引用的独立文档**，会报警。从官网 kit 起步的稿子最容易中招（包里躺着官方模板、说明书、另一版式样例）。
+- **`LTX050`：结果包里若还有自己带 `\documentclass`、正文又没引用的独立文档**，会报警。正常情况**不该出现**（结果包已按引用裁剪），真出现了说明该文件是经 `\input` 被拉进来的、或裁剪漏判了，按报告里的文件名核对。
 - **模板要求 research highlights 而原稿没有**：列入「需作者确认」，不留空 `\item` 让作者自己发现。
 
 **交付时要说清**
