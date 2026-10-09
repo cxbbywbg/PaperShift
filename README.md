@@ -59,15 +59,55 @@ pip install -r requirements.txt
 
 ### 2. 安装方式
 
-**方式一：作为 WorkBuddy / CodeBuddy 技能安装**（推荐）
+本技能遵循 **Agent Skills 开放标准**（一个目录 + 一份 `SKILL.md`，frontmatter 只有 `name` / `description` 是必填）。各客户端只是**存放位置**不同，所以同一份产物可以原样投放到多个环境，不需要为每个客户端做格式转换。
+
+先看支持哪些环境：
 
 ```bash
-python tools/install_skill.py --install          # 组装并装到 ~/.workbuddy-ai/skills/
-python tools/install_skill.py --install --force  # 覆盖已安装的同名技能
-python tools/install_skill.py --zip              # 额外打出可分发的 zip
+python tools/install_skill.py --list-targets
 ```
 
-`install_skill.py` 用**显式白名单**组装（只收 `SKILL.md`、`scripts/`、`assets/`、`references/`），`tests/`、`samples/`、`dist/` 这类开发产物不会被误打包。装好后在对话里说"帮我把这篇论文改投 XX 期刊"即可触发。
+| 目标 | 客户端 | 个人级（相对 `~`） | 项目级（相对项目根） |
+|---|---|---|---|
+| `workbuddy` | WorkBuddy / CodeBuddy | `.workbuddy-ai/skills/` | `.workbuddy-ai/skills/` |
+| `claude` | Claude Code | `.claude/skills/` | `.claude/skills/` |
+| `codex` | OpenAI Codex CLI | `.agents/skills/` | `.agents/skills/` |
+| `cursor` | Cursor | `.cursor/skills/` | `.cursor/skills/` |
+| `gemini` | Gemini CLI | `.gemini/skills/` | `.gemini/skills/` |
+
+装到单个 / 多个 / 全部环境：
+
+```bash
+python tools/install_skill.py --install                        # 默认装 workbuddy
+python tools/install_skill.py --install --target claude
+python tools/install_skill.py --install --target claude,codex  # 逗号分隔
+python tools/install_skill.py --install --target all           # 5 个环境全装
+python tools/install_skill.py --install --target all --force   # 覆盖已装的同名技能
+```
+
+目标名有别名：`codebuddy` → `workbuddy`、`claude-code` → `claude`、`openai-codex` → `codex`、`gemini-cli` → `gemini`。
+
+**项目级安装**（随仓库提交，团队共享同一版本）：
+
+```bash
+python tools/install_skill.py --install --target claude --scope project --project-dir .
+# → ./.claude/skills/sci-paper-reformatter/
+```
+
+只组装、不安装：
+
+```bash
+python tools/install_skill.py          # 组装到 dist/
+python tools/install_skill.py --zip    # 组装 + 额外打出可分发的 zip
+```
+
+`install_skill.py` 用**显式白名单**组装（只收 `SKILL.md`、`scripts/`、`assets/`、`references/`），`tests/`、`samples/`、`dist/` 这类开发产物不会被误打包。装好后在对话里说"帮我把这篇论文改投 XX 期刊"即可触发；部分客户端需要重启才生效。
+
+> 两点说明：
+> - `SKILL.md` 的 frontmatter 里除标准的 `name` / `description` 外还有一个 `agent_created`，那是 WorkBuddy 自己的标记，其他客户端会忽略，不影响加载。
+> - Gemini CLI 的技能目前是实验特性，需要在 `/settings` 里打开 `experimental.skills`。
+
+上表路径的依据（各客户端官方文档）：[Codex Agent Skills](https://developers.openai.ac.cn/codex/skills)（用户级 `~/.agents/skills`、仓库级 `.agents/skills`）、[Gemini CLI Skills](https://gemini-cli.cn/docs/cli/skills/)（用户级 `~/.gemini/skills`、工作区 `.gemini/skills`）、[Agent Skills 开放标准](https://agentskills.io)（Claude Code 与 Cursor 的目录约定）。**各客户端版本迭代较快，装完先用它的 `/skills` 之类命令确认技能被发现了。**
 
 **方式二：当普通命令行工具用**
 
@@ -306,7 +346,7 @@ scripts/sci_core/
 assets/journals/   期刊配置（YAML）
 assets/templates/  内置结构骨架
 tests/             测试与夹具
-tools/install_skill.py  白名单式组装 + 安装
+tools/install_skill.py  白名单式组装 + 多客户端安装
 ```
 
 ---
