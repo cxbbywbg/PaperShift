@@ -324,6 +324,16 @@ def _run_one_target(
         out_main = Path(conv["main_file"])
         out_root_dir = jdir
     log.step(f"转换完成：{len(changes)} 处改动 → {out_main}")
+    # 迁移结果打印：作者最关心的两件事——「迁了什么」和「什么没迁到」。
+    # 未迁移项逐条列出原因，并标出期刊规范强制要求却缺失的那些。
+    mig = changes.summary()
+    log.step(
+        f"迁移结果：已迁移/已改动 {mig['changed']} 项，"
+        f"跳过（原稿没有的内容）{mig['skipped']} 项"
+    )
+    for s in changes.skips:
+        flag = "  ⚠️ 目标期刊规范要求，投稿前必须补" if s.required else ""
+        log.step(f"  ⏭️ 未迁移 · {s.target}：{s.reason}{flag}")
 
     # ---- 5. 重新解析转换稿 ----
     # Word 稿需要把内嵌图片提取到临时目录才能做分辨率检查；这份提取物不放进结果包
@@ -407,6 +417,8 @@ def _run_one_target(
         "input": input_desc,
         "main_file": str(out_main),
         "changes": changes.to_list(),
+        "migration": changes.summary(),
+        "skipped": changes.skips_to_list(),
         "qc_before": summarize(bag_before),
         "qc_after": summarize(bag_after),
         "issues": bag_after.to_list(),
@@ -469,6 +481,7 @@ def _run_one_target(
         },
         "qc_after": summarize(bag_after),
         "changes": len(changes),
+        "migration": changes.summary(),
         "diff_identical": d["identical"],
         "diff_conclusion": conclusion_text(d),
         "pdf_preview": pdf_info.get("preview"),
@@ -491,6 +504,8 @@ def _run_one_target(
         "qc_after": summarize(bag_after),
         "changes": len(changes),
         "needs_author": len(changes.needs_author()),
+        "migration": changes.summary(),
+        "skipped": changes.skips_to_list(),
         "diff_identical": d["identical"],
         "diff_conclusion": conclusion_text(d),
         "pdf": pdf_info,

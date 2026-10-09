@@ -1319,6 +1319,146 @@ def test_package_trimming() -> None:
           f"copied={sorted(copied)} dropped={sorted(dropped)}")
 
 
+def test_missing_fields() -> None:
+    r"""初稿缺字段：跳过、不写占位、能汇报。
+
+    回归背景：以前「原稿没有摘要」会把 `\abstract{[待作者填写]}` 写进结果 ——
+    差异报告于是把空摘要和原稿摘要一比，报出「摘要内容被改了」；作者看到的
+    是一堆占位符，而不是一张「我缺哪些字段」的清单。要求是：
+
+    1. 原稿没有的字段**整条略过**，不生成占位文字；
+    2. 模板里的示例内容被**注释**保留（便于对照），而不是留成活命令；
+    3. 迁移结束能给出「已迁移 N 项 / 跳过 M 项」并逐条说明跳过了什么；
+    4. 期刊规范明确要求的字段，跳过时标 `required`。
+
+    另一个真 bug 一并守在这里：原稿没有 `\bibliography` 时，模板自己那条
+    `\bibliography{sn-bibliography}` 以前会**原样留着** —— 随包样例条目被编进
+    参考文献，`sn-bibliography.bib` 也被当成"被引用"复制进结果包。
+    """
+    print("\n== 初稿缺字段：跳过而非占位 ==")
+
+    # --- 单元：ChangeLog 的跳过账本 ---
+    ledger = ChangeLog()
+    ledger.record("元信息", "标题", after="X")
+    ledger.skip("摘要", "原稿没有摘要", required=True)
+    ledger.skip("关键词", "原稿没有关键词")
+    ledger.skip("摘要", "原稿没有摘要", required=True)   # 同一件事记两次只算一次
+    summ = ledger.summary()
+    check("跳过账本：去重 + 计数 + 强制缺失清单",
+          summ["changed"] == 1 and summ["skipped"] == 2
+          and summ["required_missing"] == ["摘要"],
+          str(summ))
+
+    # --- 端到端：三种残缺初稿 ---
+    tpl = (ROOT / "tests" / "fixtures" / "springer_kit"
+           / "sn-article-template" / "sn-article.tex")
+    cases = {
+        "only_title": (      # 只有标题与正文：作者/单位/摘要/关键词/文献全缺
+            "\\documentclass{article}\n\\begin{document}\n"
+            "\\title{T}\n\\maketitle\n\\section{S}\nBody.\n\\end{document}\n"),
+        "no_bib": (          # 元信息齐全，唯独没有文献命令
+            "\\documentclass{article}\n\\begin{document}\n\\title{T}\n"
+            "\\author{A}\n\\affil{School of X, City, China}\n"
+            "\\begin{abstract}\nAbs.\n\\end{abstract}\n"
+            "\\begin{keywords}\nk1, k2\n\\end{keywords}\n\\maketitle\n"
+            "\\section{S}\nBody.\n\\end{document}\n"),
+        "bare": (            # 连标题都没有
+            "\\documentclass{article}\n\\begin{document}\n"
+            "\\section{S}\nBody.\n\\end{document}\n"),
+    }
+    base = OUT / "missing-fields"
+    if base.exists():
+        shutil.rmtree(base, ignore_errors=True)
+
+    results: dict[str, dict] = {}
+    for name, text in cases.items():
+        src = base / name
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "paper.tex").write_text(text, encoding="utf-8")
+        results[name] = run_pipeline(src, "", base / f"out-{name}", cwd=ROOT,
+                                     make_pdf=False, log=Log(verbose=False),
+                                     template=str(tpl))
+
+    for name, res in results.items():
+        jdir = Path(res["journal_dir"])
+        main = Path(res["main_file"]).read_text(encoding="utf-8")
+        skipped_targets = {s["target"] for s in (res.get("skipped") or [])}
+
+        check(f"[{name}] 结果里不再出现 [待作者填写] 占位",
+              "[待作者填写]" not in main,
+              [ln for ln in main.split("\n") if "待作者填写" in ln][:3])
+        check(f"[{name}] 迁移结果汇总已给出（改动数 + 跳过数）",
+              (res.get("migration") or {}).get("changed", 0) > 0
+              and (res.get("migration") or {}).get("skipped", 0) == len(skipped_targets),
+              str(res.get("migration")))
+        check(f"[{name}] 差异结论：元信息跳过不算「内容被改了」",
+              res.get("diff_identical") is True, str(res.get("diff_conclusion")))
+        check(f"[{name}] 结果包里没有模板示例文献库 sn-bibliography.bib",
+              not list(jdir.rglob("sn-bibliography.bib")),
+              str([p.name for p in jdir.rglob("*.bib")]))
+
+    # 原稿**没有**摘要的那两种：模板示例摘要要被注释掉，且不能留下活命令
+    for name in ("only_title", "bare"):
+        main = Path(results[name]["main_file"]).read_text(encoding="utf-8")
+        check(f"[{name}] 缺摘要时模板示例被注释保留（可对照），不是留成活命令",
+              "% [sci-trans] 模板示例摘要已注释" in main
+              and not re.search(r"(?m)^\s*\\abstract\{", main),
+              [ln[:80] for ln in main.split("\n") if "abstract" in ln][:3])
+    # 原稿**有**摘要的那种：照常迁移，不该被当成缺失
+    no_bib_main = Path(results["no_bib"]["main_file"]).read_text(encoding="utf-8")
+    check("有摘要的稿子：摘要照常迁移，不计入跳过",
+          "\\abstract{Abs.}" in no_bib_main
+          and "摘要" not in {s["target"] for s in results["no_bib"]["skipped"]},
+          [ln[:80] for ln in no_bib_main.split("\n") if "abstract" in ln][:3])
+
+    # 具体跳过项：只给标题的稿子，缺的字段要一个不落地列出来
+    only_title = {s["target"] for s in (results["only_title"].get("skipped") or [])}
+    check("缺字段清单完整（作者/单位/摘要/关键词/文献库）",
+          {"作者列表", "作者单位", "摘要", "关键词", "参考文献库"} <= only_title,
+          str(sorted(only_title)))
+    check("只有标题的稿子：标题不算「缺失」",
+          "标题" not in only_title, str(sorted(only_title)))
+    check("元信息齐全、只缺文献库的稿子：只报文献库",
+          {s["target"] for s in (results["no_bib"].get("skipped") or [])}
+          == {"参考文献库"},
+          str([s["target"] for s in (results["no_bib"].get("skipped") or [])]))
+    check("连标题都没有时：标题被标为期刊强制要求的缺失项",
+          "标题" in (results["bare"].get("migration") or {}).get("required_missing", []),
+          str((results["bare"].get("migration") or {}).get("required_missing")))
+
+    # 汇总要真的写进结果包（作者看的是文件，不是终端）
+    log_md = (Path(results["bare"]["journal_dir"]) / "conversion-log.md").read_text(encoding="utf-8")
+    check("未迁移清单写进 conversion-log.md",
+          "未迁移清单" in log_md and "原稿未解析到摘要" in log_md,
+          log_md[:200])
+
+    # --- 「期刊是否强制要求」只在配置写得出来时才为真（不猜规则）---
+    from sci_core.latex_build import _cfg_requires  # noqa: PLC0415
+    cfg_els = J.load("elsevier-generic", ROOT)
+    cfg_tpl = J.from_template(str(tpl))
+    check("期刊规范写了 required_sections/keywords_min → 缺摘要/关键词标为强制",
+          _cfg_requires(cfg_els, "abstract") and _cfg_requires(cfg_els, "keywords"),
+          f"abstract={_cfg_requires(cfg_els, 'abstract')} "
+          f"keywords={_cfg_requires(cfg_els, 'keywords')}")
+    check("只有官方模板、没有期刊配置时不猜规则（不标强制）",
+          not _cfg_requires(cfg_tpl, "abstract") and not _cfg_requires(cfg_tpl, "keywords"),
+          f"abstract={_cfg_requires(cfg_tpl, 'abstract')} "
+          f"keywords={_cfg_requires(cfg_tpl, 'keywords')}")
+
+    # --- 正文切分护栏：畸形初稿不能静默丢章节 ---
+    broken = base / "no_doc_env"
+    broken.mkdir(parents=True, exist_ok=True)
+    (broken / "paper.tex").write_text(
+        "\\documentclass{article}\n\\title{T}\n\\section{Body}\n"
+        "No \\begin{document} here at all.\n", encoding="utf-8")
+    res_broken = run_pipeline(broken, "", base / "out-broken", cwd=ROOT,
+                              make_pdf=False, log=Log(verbose=False),
+                              template=str(tpl))
+    check("畸形初稿（无 \\begin{document}）：报 CVT022 而不是静默丢章节",
+          "CVT022" in {i["code"] for i in res_broken.get("issues", [])},
+          str(sorted({i["code"] for i in res_broken.get("issues", [])})))
+
+
 def test_rule_binding() -> None:
     """配置里的规则必须真的绑到检查上。
 
@@ -1406,7 +1546,7 @@ def main() -> int:
                test_template_mode, test_template_archive, test_main_tex_pick,
                test_frontmatter_regression, test_springer_template,
                test_preamble_carry, test_email_backfill, test_cas_draft_style,
-               test_package_trimming,
+               test_package_trimming, test_missing_fields,
                test_rule_binding, test_issue_code_hygiene):
         try:
             fn()

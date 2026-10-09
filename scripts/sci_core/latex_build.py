@@ -37,7 +37,7 @@ from .changes import (
     ChangeLog,
 )
 from .issues import CAT_FILE, CAT_LATEX, IssueBag, Location
-from .journal import JournalConfig
+from .journal import JournalConfig, effective_rules
 from .latex_parse import read_group, resolve_include, strip_comments
 from .util import Log, normalize_ws, read_text, rel, write_text
 
@@ -591,6 +591,10 @@ def op_declarations(text: str, ms: M.Manuscript, cfg: JournalConfig, path: str, 
             reason="目标期刊要求该声明，原稿中没有；已插入占位段落，内容必须由作者补全",
             file=path, rule_source=cfg.rule_source("declarations.required"),
             needs_author=True,
+        )
+        changes.skip(
+            label, "目标期刊强制要求该声明，原稿中没有；只插入了占位段落",
+            source=f"原稿里没有可识别的 {label} 声明", required=True,
         )
     block_text = "\n".join(block) + "\n"
     if anchor:
@@ -1271,6 +1275,52 @@ def _live_matches(pattern: re.Pattern, text: str) -> list[re.Match]:
     return [m for m in pattern.finditer(text) if not mask[m.start()]]
 
 
+def _comment_block(text: str, note: str) -> str:
+    r"""把一段模板示例**整段注释掉**，并在前面留一行说明。
+
+    用于「原稿没有这个字段」时的处理。以前的做法是往结果里写
+    `\abstract{[待作者填写]}`——两个后果：差异报告把空摘要和原稿摘要一比，
+    报出「摘要内容被改了」；作者看到的是占位符，而不是一张缺字段清单。
+    注释掉示例内容既不会把模板的样例文字留进稿子，也不伪造内容，
+    作者一眼就能看到「这里原本该有摘要」。
+
+    注释用 `%` 逐行加，空行只留一个 `%`（避免尾随空格）。
+    """
+    body = "\n".join(("% " + ln) if ln.strip() else "%" for ln in text.split("\n"))
+    return f"% [sci-trans] {note}\n{body}"
+
+
+def _cfg_requires(cfg: JournalConfig, field: str) -> bool:
+    r"""目标期刊规范里是否**明确**要求该元信息字段。
+
+    只认配置里写得出来的证据，查不到就返回 False —— 本项目的原则是
+    「不猜规则」：宁可把「缺摘要」报成普通提示，也不凭常识断言某本期刊
+    必须要有摘要。
+
+    * `abstract` —— `article_types.required_sections` 含 abstract，
+      或配置了 `abstract.max_words`（设了字数上限说明这期刊要摘要）；
+    * `keywords` —— `abstract.keywords_min` 大于 0；
+    * `highlights` —— `abstract.highlights_required` 为真。
+    """
+    try:
+        rules = effective_rules(cfg)
+    except Exception:
+        return False
+    if field == "abstract":
+        return bool(
+            "abstract" in (rules.get("required_sections") or [])
+            or rules.get("abstract_max_words") is not None
+        )
+    if field == "keywords":
+        try:
+            return int(rules.get("keywords_min") or 0) > 0
+        except (TypeError, ValueError):
+            return False
+    if field == "highlights":
+        return bool(cfg.get("abstract.highlights_required"))
+    return False
+
+
 def _infer_metadata_templates(region: str) -> dict:
     """从模板自带的示例元信息里推断命令写法，供「没有期刊配置」时兜底。
 
@@ -1404,6 +1454,10 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
                     file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
                     needs_author=True, auto=False,
                 )
+                changes.skip(
+                    "标题", "原稿未解析到标题，模板示例标题已注释；未生成占位",
+                    source="主文件元信息区没有 \\title 命令（或标题为空）", required=True,
+                )
             title_done = True
         elif title:
             edits.append((tm_span[0], tm_span[1], "\\title{" + title + "}"))
@@ -1424,6 +1478,10 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
                 needs_author=True, auto=False,
             )
+            changes.skip(
+                "标题", "原稿未解析到标题，模板示例标题已注释；未生成占位",
+                source="主文件元信息区没有 \\title 命令（或标题为空）", required=True,
+            )
             title_done = True
 
     # ---- 3. 作者 / 单位命令区落笔 ----
@@ -1443,6 +1501,16 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             file=path, rule_source=cfg.rule_source("output.latex.metadata"),
             needs_author=True,
         )
+        if not (ms.metadata.authors or []):
+            changes.skip(
+                "作者列表", "原稿未解析到作者信息，模板示例作者已注释；未生成占位",
+                source="主文件与标题页里都没有可识别的 \\author 命令", required=True,
+            )
+        if not (ms.metadata.affiliations or []):
+            changes.skip(
+                "作者单位", "原稿未解析到单位信息；未生成占位",
+                source="主文件与标题页里都没有可识别的 \\affiliation/\\address/\\institute 命令",
+            )
     elif block:
         inserts.append((len(region), block + "\n"))
         changes.record(
@@ -1478,14 +1546,20 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
         else:
             edits.append((
                 s, e,
-                f"% [sci-trans] 模板摘要占位已清空（原稿未解析到摘要）\n"
-                f"\\begin{{{env_name}}}\n[待作者填写]\n\\end{{{env_name}}}",
+                _comment_block(region[s:e],
+                               "模板示例摘要已注释：原稿未解析到摘要，未生成占位"),
             ))
             changes.record(
-                CH_METADATA, "摘要", after="[待作者填写]",
-                reason="原稿未解析到摘要，模板示例摘要已清空，需作者补填",
+                CH_METADATA, "摘要",
+                before=normalize_ws(region[s:e])[:120], after="(已注释，未生成占位)",
+                reason="原稿未解析到摘要，模板示例摘要已注释；按「原稿没有的内容先跳过」处理",
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
                 needs_author=True, auto=False,
+            )
+            changes.skip(
+                "摘要", "原稿未解析到摘要，模板示例摘要已注释；未生成占位",
+                source="主文件元信息区没有 abstract 环境（或内容为空）",
+                required=_cfg_requires(cfg, "abstract"),
             )
     elif abs_cmd_m:
         try:
@@ -1504,14 +1578,21 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             else:
                 edits.append((
                     abs_cmd_m.start(), abs_end,
-                    "% [sci-trans] 模板摘要占位已清空（原稿未解析到摘要）\n"
-                    "\\abstract{[待作者填写]}",
+                    _comment_block(region[abs_cmd_m.start():abs_end],
+                                   "模板示例摘要已注释：原稿未解析到摘要，未生成占位"),
                 ))
                 changes.record(
-                    CH_METADATA, "摘要", after="[待作者填写]",
-                    reason="原稿未解析到摘要，模板示例摘要已清空，需作者补填",
+                    CH_METADATA, "摘要",
+                    before=normalize_ws(region[abs_cmd_m.start():abs_end])[:120],
+                    after="(已注释，未生成占位)",
+                    reason="原稿未解析到摘要，模板示例摘要已注释；按「原稿没有的内容先跳过」处理",
                     file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
                     needs_author=True, auto=False,
+                )
+                changes.skip(
+                    "摘要", "原稿未解析到摘要，模板示例摘要已注释；未生成占位",
+                    source="主文件元信息区没有 \\abstract 命令（或内容为空）",
+                    required=_cfg_requires(cfg, "abstract"),
                 )
     elif abstract:
         inserts.append((len(region), "\\begin{abstract}\n" + abstract + "\n\\end{abstract}\n"))
@@ -1529,20 +1610,27 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
     kw_cmd_m = None if kw_span else re.search(r"\\keywords?\s*\*?\s*\{", masked)
     if kw_span:
         s, e, env = kw_span
-        body = kw_value or "[待作者填写]"
-        edits.append((s, e, f"\\begin{{{env}}}\n{body}\n\\end{{{env}}}"))
-        if keywords:
+        if kw_value:
+            edits.append((s, e, f"\\begin{{{env}}}\n{kw_value}\n\\end{{{env}}}"))
             changes.record(
                 CH_METADATA, "关键词", after=", ".join(keywords),
                 reason="套用目标模板的关键词环境（关键词取自原稿，未改写）",
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
             )
         else:
+            edits.append((s, e, _comment_block(
+                region[s:e], "模板示例关键词已注释：原稿未解析到关键词，未生成占位")))
             changes.record(
-                CH_METADATA, "关键词", after="[待作者填写]",
-                reason="原稿未解析到关键词，模板示例关键词已清空，需作者补填",
+                CH_METADATA, "关键词",
+                before=normalize_ws(region[s:e])[:120], after="(已注释，未生成占位)",
+                reason="原稿未解析到关键词，模板示例关键词已注释；按「原稿没有的内容先跳过」处理",
                 file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
                 needs_author=True, auto=False,
+            )
+            changes.skip(
+                "关键词", "原稿未解析到关键词，模板示例关键词已注释；未生成占位",
+                source=f"主文件元信息区没有 {env} 环境（或内容为空）",
+                required=_cfg_requires(cfg, "keywords"),
             )
     elif kw_cmd_m:
         try:
@@ -1551,21 +1639,31 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             kw_end = -1
         if kw_end > 0:
             tpl_line = str(meta.get("keywords_command") or "\\keywords{%value}")
-            edits.append(
-                (kw_cmd_m.start(), kw_end, _fmt(tpl_line, value=kw_value or "[待作者填写]"))
-            )
-            if keywords:
+            if kw_value:
+                edits.append((kw_cmd_m.start(), kw_end, _fmt(tpl_line, value=kw_value)))
                 changes.record(
                     CH_METADATA, "关键词", after=", ".join(keywords),
                     reason="套用目标模板的关键词命令（关键词取自原稿，未改写）",
                     file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
                 )
             else:
+                edits.append((
+                    kw_cmd_m.start(), kw_end,
+                    _comment_block(region[kw_cmd_m.start():kw_end],
+                                   "模板示例关键词已注释：原稿未解析到关键词，未生成占位"),
+                ))
                 changes.record(
-                    CH_METADATA, "关键词", after="[待作者填写]",
-                    reason="原稿未解析到关键词，模板示例关键词已清空，需作者补填",
+                    CH_METADATA, "关键词",
+                    before=normalize_ws(region[kw_cmd_m.start():kw_end])[:120],
+                    after="(已注释，未生成占位)",
+                    reason="原稿未解析到关键词，模板示例关键词已注释；按「原稿没有的内容先跳过」处理",
                     file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
                     needs_author=True, auto=False,
+                )
+                changes.skip(
+                    "关键词", "原稿未解析到关键词，模板示例关键词已注释；未生成占位",
+                    source="主文件元信息区没有 \\keywords 命令（或内容为空）",
+                    required=_cfg_requires(cfg, "keywords"),
                 )
     elif keywords:
         line = meta.get("keywords_command") or "\\begin{keyword}%value\\end{keyword}"
@@ -1592,16 +1690,23 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
         else:
             edits.append((
                 s, e,
-                "% [sci-trans] 模板要求 research highlights（3–5 条、每条 ≤85 字符），"
-                "原稿没有；请作者填写或整段删除\n"
-                "\\begin{highlights}\n\\item \n\\item \n\\item \n\\end{highlights}",
+                _comment_block(
+                    region[s:e],
+                    "模板要求 research highlights（3–5 条、每条 ≤85 字符），原稿没有；"
+                    "示例已注释，未生成占位"),
             ))
             changes.record(
-                CH_METADATA, "研究亮点", after="(待作者填写)",
+                CH_METADATA, "研究亮点",
+                before=normalize_ws(region[s:e])[:120], after="(已注释，未生成占位)",
                 reason="目标模板带 research highlights 环境（Elsevier 等必填），"
-                       "原稿未提供；已保留空模板并列入待办",
+                       "原稿未提供；按「原稿没有的内容先跳过」处理",
                 file=path, rule_source=cfg.rule_source("output.latex.metadata"),
                 needs_author=True, auto=False,
+            )
+            changes.skip(
+                "研究亮点", "原稿未提供 research highlights；模板示例已注释，未生成占位",
+                source="主文件元信息区没有 highlights 环境（或内容为空）",
+                required=True,
             )
 
     # ---- 7. 落笔：替换从后往前，插入从后往前 ----
@@ -1703,12 +1808,36 @@ def _retarget_bibliography(tail: str, ms: M.Manuscript, cfg: JournalConfig,
         head, close = tail, "\\end{document}\n"
 
     # --- \bibliography{...}：首条改为原稿文献库，其余（模板样例）注释掉 ---
+    #
+    # 特例：原稿**根本没有** \bibliography（`want` 为空）。以前这里 `continue`，
+    # 于是模板自己那条 `\bibliography{sn-bibliography}` 原样留着——它指向随包
+    # 的示例文献库，会把样例条目编进参考文献，`sn-bibliography.bib` 也会被
+    # 当成"被引用的文件"复制进结果包。现在改为：原稿没有文献库时，模板的
+    # 示例文献命令一律注释掉，并记入未迁移清单让作者知道该补什么。
     bib_hits = _live_matches(re.compile(r"\\bibliography\s*\{([^}]*)\}"), head)
     if bib_hits:
         for i, m in reversed(list(enumerate(bib_hits))):
             cur = m.group(1).strip()
             if i == 0:
-                if not want or cur == want:
+                if not want:
+                    head = (head[:m.start()]
+                            + "% [sci-trans] 模板示例文献库（已注释）：原稿没有 \\bibliography，"
+                              "未生成占位" + m.group(0) + head[m.end():])
+                    changes.record(
+                        CH_REFERENCE, "\\bibliography", before=cur or "(空)",
+                        after="(已注释，未生成占位)",
+                        reason="原稿没有 \\bibliography 命令，模板示例文献库已注释，"
+                               "避免随包样例条目混进参考文献；未生成占位",
+                        file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+                        needs_author=True, auto=False,
+                    )
+                    changes.skip(
+                        "参考文献库", "原稿没有 \\bibliography/\\addbibresource 命令，"
+                                     "模板示例文献库已注释；未生成占位",
+                        source="主文件与子文件里都没有指向 .bib 的文献命令",
+                    )
+                    continue
+                if cur == want:
                     continue
                 head = head[:m.start()] + f"\\bibliography{{{want}}}" + head[m.end():]
                 changes.record(
@@ -1742,8 +1871,28 @@ def _retarget_bibliography(tail: str, ms: M.Manuscript, cfg: JournalConfig,
         )
 
     # --- biblatex：\addbibresource{...} ---
-    if want:
-        add_hits = _live_matches(re.compile(r"\\addbibresource\s*\{([^}]*)\}"), head)
+    # 与 \bibliography 同理：原稿没有文献库时，模板的示例库必须注释掉，
+    # 否则样例条目会被编进参考文献、示例 .bib 也会被复制进结果包。
+    add_hits = _live_matches(re.compile(r"\\addbibresource\s*\{([^}]*)\}"), head)
+    if add_hits and not want:
+        for m in reversed(add_hits):
+            head = (head[:m.start()]
+                    + "% [sci-trans] 模板示例文献库（已注释）：原稿没有 \\addbibresource，"
+                      "未生成占位" + m.group(0) + head[m.end():])
+        changes.record(
+            CH_REFERENCE, "\\addbibresource", before=add_hits[0].group(1).strip(),
+            after="(已注释，未生成占位)",
+            reason="原稿没有 \\addbibresource 命令，模板示例文献库已注释，"
+                   "避免随包样例条目混进参考文献；未生成占位",
+            file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+            needs_author=True, auto=False,
+        )
+        changes.skip(
+            "参考文献库", "原稿没有 \\bibliography/\\addbibresource 命令，"
+                         "模板示例文献库已注释；未生成占位",
+            source="主文件与子文件里都没有指向 .bib 的文献命令",
+        )
+    elif want:
         for i, m in reversed(list(enumerate(add_hits))):
             cur = m.group(1).strip()
             if i == 0:
@@ -1858,6 +2007,21 @@ def convert_latex_template(
             "CVT021", CAT_LATEX, "原稿正文为空，模板骨架里未插入任何正文内容",
             location=Location(file=main_rel.as_posix()),
             suggestion="确认原稿主文件里 \\begin{document} 之后确实有正文。",
+        )
+    # 切分护栏：原稿结构畸形时（根本没有 \begin{document}，或正文文字里出现
+    # 字面量 `\begin{document}`），`_body_region` 会把整篇当成导言区，切出来的
+    # 「正文」只剩半句话，而**所有章节被静默丢掉**。这违反「改不动就保留原文 +
+    # 警告」，所以这里比对章节数，一旦正文里一个章节都没有就报出来。
+    _sec_re = re.compile(r"\\(?:section|chapter)\*?\s*\{")
+    src_secs = len(_sec_re.findall(main_text))
+    if src_secs and not _sec_re.search(body):
+        bag.warn(
+            "CVT022", CAT_LATEX,
+            f"原稿正文切分异常：主文件里有 {src_secs} 个章节命令，但切出的正文里一个都没有——"
+            "章节内容可能未被完整移植，请人工核对结果包里的主文件",
+            location=Location(file=main_rel.as_posix()),
+            suggestion="常见原因是主文件缺少 \\begin{document}，或 \\begin{document} 出现在正文文字里。"
+                       "请把原稿整理成规范的 LaTeX 结构后重跑。",
         )
 
     body_new = body
@@ -1988,6 +2152,10 @@ def convert_latex_template(
         "files": [rel(p, out) for p in sorted(out.rglob("*")) if p.is_file()],
         "changes": changes.to_list(),
         "change_count": len(changes),
+        # 迁移结果：改了多少、略过了多少、哪些字段原稿没有（含期刊是否强制要求）。
+        # 由 pipeline 打印并写进 conversion-log.md，作者一眼能看到「缺什么」。
+        "migration": changes.summary(),
+        "skipped": changes.skips_to_list(),
     }
 
 
@@ -2133,6 +2301,8 @@ def convert_latex(
         "files": [rel(p, out) for p in sorted(out.rglob("*")) if p.is_file()],
         "changes": changes.to_list(),
         "change_count": len(changes),
+        "migration": changes.summary(),
+        "skipped": changes.skips_to_list(),
     }
 
 

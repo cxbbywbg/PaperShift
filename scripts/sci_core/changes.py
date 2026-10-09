@@ -67,10 +67,46 @@ class Change:
         return out
 
 
+@dataclass
+class Skip:
+    """一次「原稿里没有这项内容，于是整条没迁移」的记录。
+
+    与 `Change` 相对：`Change` 记的是「改了什么」，`Skip` 记的是「本该有、
+    但原稿没有，所以略过了什么」。两者必须分开记——
+
+    以前的做法是「原稿没有摘要就往结果里写 `\\abstract{[待作者填写]}`」，
+    于是差异报告把空摘要和原稿摘要一比，报出「摘要内容被改了」；作者看到
+    的是一堆占位符，而不是一张「我缺哪些字段」的清单。跳过清单把这件事
+    说清楚：哪些字段没迁到、为什么、期刊是否强制要求。
+
+    `required` 只在**期刊配置里写得出来**时才为真（`article_types.required_sections`
+    含 abstract、`abstract.keywords_min > 0` 等）；查不到就不当"必须"——
+    本项目的原则是「不猜规则」。
+    """
+
+    target: str
+    reason: str
+    source: str = ""          # 原稿中该字段的状态（便于作者定位）
+    required: bool = False    # 目标期刊规范是否明确要求该字段
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def line_md(self) -> str:
+        out = f"- `{self.target}` —— {self.reason}"
+        if self.source:
+            out += f"\n  - 原稿状态：{self.source}"
+        if self.required:
+            out += "\n  - ⚠️ 目标期刊规范要求该字段，投稿前必须补上"
+        return out
+
+
 class ChangeLog:
     def __init__(self) -> None:
         self.items: list[Change] = []
         self._seen: set[tuple] = set()
+        self.skips: list[Skip] = []
+        self._seen_skips: set[tuple] = set()
 
     def add(self, change: Change) -> Change:
         key = (change.kind, change.target, change.before, change.after, change.file, change.line)
@@ -82,6 +118,16 @@ class ChangeLog:
 
     def record(self, kind, target, before="", after="", reason="", **kw) -> Change:
         return self.add(Change(kind=kind, target=target, before=before, after=after, reason=reason, **kw))
+
+    def skip(self, target: str, reason: str, source: str = "", required: bool = False) -> Skip:
+        """记一条「原稿没有该内容，故未迁移」。同一 (target, reason) 只记一次。"""
+        key = (target, reason, source)
+        if key in self._seen_skips:
+            return Skip(target=target, reason=reason, source=source, required=required)
+        self._seen_skips.add(key)
+        s = Skip(target=target, reason=reason, source=source, required=required)
+        self.skips.append(s)
+        return s
 
     def extend(self, changes) -> None:
         for c in changes:
@@ -96,8 +142,26 @@ class ChangeLog:
     def needs_author(self) -> list[Change]:
         return [c for c in self.items if c.needs_author]
 
+    def required_skips(self) -> list[Skip]:
+        return [s for s in self.skips if s.required]
+
+    def summary(self) -> dict:
+        """迁移结果汇总：改了多少、略过了多少、其中多少是期刊强制要求的。
+
+        这是「迁移结果打印」与「未迁移清单」两处共用的唯一口径。
+        """
+        return {
+            "changed": len(self.items),
+            "skipped": len(self.skips),
+            "needs_author": len(self.needs_author()),
+            "required_missing": [s.target for s in self.skips if s.required],
+        }
+
     def to_list(self) -> list[dict]:
         return [c.to_dict() for c in self.items]
+
+    def skips_to_list(self) -> list[dict]:
+        return [s.to_dict() for s in self.skips]
 
     def counts(self) -> dict:
         out = {k: 0 for k in KINDS}

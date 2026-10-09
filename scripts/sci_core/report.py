@@ -226,7 +226,22 @@ def render_conversion_log(
         L.append(f"| {k} | `{v}` |")
     L.append("")
 
-    L.append("## 二、改动统计")
+    L.append("## 二、迁移结果汇总")
+    L.append("")
+    mig = changes.summary()
+    L.append(f"- ✅ 已迁移 / 已改动：**{mig['changed']}** 项")
+    L.append(f"- ⏭️ 未迁移（原稿里没有这项内容，已跳过）：**{mig['skipped']}** 项")
+    if mig["required_missing"]:
+        L.append(f"- ⚠️ 其中目标期刊规范**强制要求**、但原稿没有的："
+                 f"**{'、'.join(mig['required_missing'])}**")
+    else:
+        L.append("- 其中没有「期刊强制要求却缺失」的字段。")
+    L.append("")
+    L.append("> 跳过不等于丢弃：原稿没有的字段**不会**被写成占位文字塞进稿子，"
+             "模板里的示例内容会被注释保留（便于对照），正文与数据一律原样保留。")
+    L.append("")
+
+    L.append("## 三、改动统计")
     L.append("")
     counts = changes.counts()
     if counts:
@@ -238,7 +253,7 @@ def render_conversion_log(
         L.append("本次转换未做任何改动。")
     L.append("")
 
-    L.append("## 三、改动明细")
+    L.append("## 四、改动明细")
     L.append("")
     for kind, items in changes.by_kind().items():
         L.append(f"### {kind}（{len(items)}）")
@@ -247,8 +262,33 @@ def render_conversion_log(
             L.append(c.line_md())
         L.append("")
 
+    # 未迁移清单：原稿里确实没有的字段。以前这些字段会被写成 `[待作者填写]`
+    # 占位塞进结果，既让差异报告误报「内容被改了」，也没告诉作者"你到底缺什么"。
+    L.append("## 五、未迁移清单（原稿没有、因而跳过的内容）")
+    L.append("")
+    if changes.skips:
+        req = [s for s in changes.skips if s.required]
+        if req:
+            L.append("**必须先补上（目标期刊规范要求）：**")
+            L.append("")
+            for s in req:
+                L.append(s.line_md())
+            L.append("")
+        opt = [s for s in changes.skips if not s.required]
+        if opt:
+            L.append("**其余跳过项（请确认是否确实不需要）：**")
+            L.append("")
+            for s in opt:
+                L.append(s.line_md())
+            L.append("")
+        L.append("> 这些内容在原稿里没有找到，因此**没有生成任何占位文字**；"
+                 "模板中对应的示例内容已注释保留在源文件里（搜 `[sci-trans]` 可见）。")
+    else:
+        L.append("原稿的元信息与文献信息齐全，本次没有需要跳过的字段。")
+    L.append("")
+
     needs = changes.needs_author()
-    L.append("## 四、需要作者确认的改动")
+    L.append("## 六、需要作者确认的改动")
     L.append("")
     if needs:
         for c in needs:
@@ -257,7 +297,7 @@ def render_conversion_log(
         L.append("本次转换没有涉及需要作者确认的实质性改动。")
     L.append("")
 
-    L.append("## 五、未做的改动（明确说明）")
+    L.append("## 七、未做的改动（明确说明）")
     L.append("")
     L.append("- 未改写论文正文段落（除非上方明细中明确列出）。")
     L.append("- 未删除公式、表格、图片或引用。")
@@ -315,6 +355,12 @@ def render_package_index(
         c0 = bag_before.counts()
         L.append(f"- 原稿基线：🔴 {c0.get(ERROR,0)} / 🟡 {c0.get(WARNING,0)} / 🔵 {c0.get(INFO,0)}")
     L.append(f"- 转换改动：{len(changes)} 处，其中需作者确认 {len(changes.needs_author())} 处")
+    mig = changes.summary()
+    if mig["skipped"]:
+        tail = (f"，其中期刊强制要求的：{'、'.join(mig['required_missing'])}"
+                if mig["required_missing"] else "")
+        L.append(f"- 未迁移（原稿没有的内容，已跳过）：{mig['skipped']} 项{tail}"
+                 "（详见 `conversion-log.md` 第五节）")
     if diff is not None:
         from .diff import conclusion_text
         L.append(f"- 内容差异：{conclusion_text(diff)}")

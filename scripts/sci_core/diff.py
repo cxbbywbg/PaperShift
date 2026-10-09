@@ -34,10 +34,13 @@ _AFFIL_CMD_RE = re.compile(
 
 
 def _canon_affil(text: str) -> str:
-    """把单位信息归一成「内容」，忽略命令体系与 `key=` 写法的差异。
+    r"""把单位信息归一成「内容」，忽略命令体系与 `key=` 写法的差异。
 
     剥掉 `key=` 前缀与已知命令名，去掉花括号与空字段后按逗号重组。
     `\postcode{}` 这类空字段不会在结果里留下多余的 `, ,`。
+
+    注意 docstring 必须是 raw 字符串：`\postcode` 里的 `\p` 不是合法转义序列，
+    普通字符串会让 Python 抛 `SyntaxWarning: invalid escape sequence '\p'`。
     """
     t = _AFFIL_KV_RE.sub("", text or "")
     t = _AFFIL_CMD_RE.sub("", t)

@@ -372,6 +372,10 @@ def convert_docx_safe(
                 rule_source=cfg.rule_source("declarations.required"),
                 needs_author=True,
             )
+            changes.skip(
+                label, "目标期刊强制要求该声明，原稿中没有；只插入了占位段落",
+                source=f"原稿里没有可识别的 {label} 声明", required=True,
+            )
 
     # ---- 6. 参考文献段落格式 ----
     ref_style = cfg.get("references.style")
@@ -510,6 +514,7 @@ def convert_docx_template(
     return {
         "output": str(out), "mode": "template",
         "inserted": inserted, "skipped": skipped, "changes": len(changes),
+        "migration": changes.summary(), "skipped_items": changes.skips_to_list(),
     }
 
 
@@ -569,5 +574,7 @@ def convert_docx(
         "output_dir": str(out),
         "main_file": str(out_path),
         "files": [p.name for p in sorted(out.iterdir()) if p.is_file()],
+        "migration": changes.summary(),
+        "skipped_items": changes.skips_to_list(),
     })
     return res
