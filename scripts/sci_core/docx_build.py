@@ -38,8 +38,8 @@ from .changes import (
     ChangeLog,
 )
 from .docx_parse import CAPTION_RE_LOOSE, CAPTION_RE_STRICT, CAPTION_STYLES
-from .issues import CAT_DOCX, IssueBag, Location
-from .journal import JournalConfig, resolve_template_path
+from .issues import CAT_DOCX, CAT_FILE, IssueBag, Location
+from .journal import JournalConfig, resolve_template
 from .util import Log, normalize_ws, rel
 
 NS_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -536,17 +536,30 @@ def convert_docx(
     docx_cfg = cfg.docx()
     base = (docx_cfg.get("base") or "safe").lower()
     template = docx_cfg.get("template") or ""
-    tpl_path = resolve_template_path(str(template), cfg) if template else None
+    tpl_res = resolve_template(str(template), cfg, fmt="docx", log=log) if template else None
+    tpl_path = tpl_res.path if tpl_res else None
 
     if base == "template" and tpl_path is not None:
+        if tpl_res.note:
+            bag.warn(
+                "CVT013", CAT_FILE,
+                f"模板包内有多份候选主文件，已自动选用 {tpl_res.note}；如不是想要的那份，请用 kit.zip::包内路径 明确指定",
+                location=Location(file=str(tpl_res.archive or tpl_path)),
+                suggestion="不同候选往往对应不同版式，选错会产出不符合投稿要求的稿子。",
+            )
         out_path = out / f"{src_name}_formatted.docx"
         res = convert_docx_template(ms, cfg, tpl_path, out_path, changes, bag, log)
     else:
         if base == "template" and template:
+            reason = f"（{tpl_res.reason}）" if tpl_res and tpl_res.reason else ""
             bag.warn(
                 "CVT010", CAT_DOCX,
-                f"配置指定了模板模式，但模板文件不存在或无法解析：{template}；已回退到安全模式",
+                f"配置指定了模板模式，但模板无法作为骨架使用：{template}{reason}；已回退到安全模式",
                 location=Location(file=str(template)),
+                suggestion=(
+                    "确认模板指向官方 .docx；若给的是官网下载的压缩包（.zip），"
+                    "包内需含 .docx，包内有多份时用 kit.zip::模板文件名 指定。"
+                ),
             )
         out_path = out / f"{src_name}_formatted.docx"
         res = convert_docx_safe(ms, cfg, out_path, changes, bag, log)

@@ -42,6 +42,12 @@ python scripts/sci.py run paper/manuscript.docx --journal elsevier-generic -o ou
 # 4) 手上有官网下载的官方模板时，直接指过去（最贴近真实投稿场景）
 python scripts/sci.py run paper/main.tex --template ~/Downloads/elsarticle-template-num.tex -o out
 python scripts/sci.py run paper/manuscript.docx --template ~/Downloads/journal-template.docx -o out
+
+# 5) 原稿和模板都是压缩包（Overleaf 导出 + 官网 kit）——不用手工解压
+python scripts/sci.py run ~/Downloads/my-paper.zip --template ~/Downloads/elsarticle.zip -o out
+# 包内有多份模板时指定用哪一份
+python scripts/sci.py run ~/Downloads/my-paper.zip \
+    --template '~/Downloads/elsarticle.zip::elsarticle-template-num.tex' -o out
 ```
 
 `run` 默认**尽可能全自动**：不逐项等确认，跑完直接给出报告，把需要作者决定的事情集中列在"需人工确认"清单里。
@@ -51,7 +57,15 @@ python scripts/sci.py run paper/manuscript.docx --template ~/Downloads/journal-t
 | 模式 | 触发方式 | 做法 | 适用 |
 |---|---|---|---|
 | **定点手术**（默认） | 只给 `--journal` | 在原稿副本上只改已知结构位置（导言区、元信息命令、文献命令、章节编号、题注标签），正文逐字不动 | 目标期刊的文档类与原稿同构（如 IEEEtran ↔ 其他单文件类） |
-| **模板模式** | `--template <文件>`，或配置里写 `output.latex.base: template` | 以官方模板为骨架：**保留模板的 `\documentclass` 与宏包体系**，把原稿的标题/作者/单位/摘要/关键词/正文/声明/文献命令移植进去；模板自带的 `.cls`/`.bst` 一并复制进结果包 | 手上有官网下载的模板；或目标文档类有强制结构（如 Elsevier `elsarticle` 要求元信息必须包在 `\begin{frontmatter}…\end{frontmatter}` 里） |
+| **模板模式** | `--template <文件或压缩包>`，或配置里写 `output.latex.base: template` | 以官方模板为骨架：**保留模板的 `\documentclass` 与宏包体系**，把原稿的标题/作者/单位/摘要/关键词/正文/声明/文献命令移植进去；模板自带的 `.cls`/`.bst` 一并复制进结果包 | 手上有官网下载的模板；或目标文档类有强制结构（如 Elsevier `elsarticle` 要求元信息必须包在 `\begin{frontmatter}…\end{frontmatter}` 里） |
+
+`--template` 接受三种形态，**都不需要事先手工解压**：
+
+| 形态 | 写法 | 说明 |
+|---|---|---|
+| 单文件 | `--template path/to/main.tex` | LaTeX 用 `.tex` 主文件，Word 用 `.docx` |
+| 压缩包 | `--template ~/Downloads/elsarticle.zip` | 自动解包、挑出包内主文件；包内 `.cls`/`.bst` 随结果包提供 |
+| 包内指定 | `--template 'kit.zip::elsarticle-template-num.tex'` | 包内有多份模板时，明确指定用哪一份 |
 
 模板模式的关键行为：
 
@@ -62,6 +76,7 @@ python scripts/sci.py run paper/manuscript.docx --template ~/Downloads/journal-t
 - **模板自带的文献样式优先**，与期刊配置不一致时提示人工确认，不静默覆盖。
 - 配置里的 `packages_add` 在模板模式下**不强制添加**（避免 option clash），转换记录里会明确写"未做的改动"。
 - 结构定位失败（模板里找不到 `\begin{document}` 等）时**降级回定点手术并报 `CVT012`**，不静默失败。
+- **模板压缩包自动解包**：`--template kit.zip` 等价于「手工解压后指向包内主文件」，结果包内容逐字节一致。包内 `readme`、作者须知、`__MACOSX` 垃圾不复制。包内有**多份**候选主文件时报 `CVT013` 并列出候选——不同候选常常对应不同引用样式（elsarticle 的 num / harv / num-names 就是三份不同模板），**这一条必须人工过目**；不对就用 `kit.zip::包内路径` 指定。
 
 `--journal` 与 `--template` 的分工：**期刊配置提供"规则"（图片 DPI、声明要求、篇幅上限…），模板提供"结构"（文档类、命令体系、版式骨架）**。两个都给 = 规则 + 结构都齐；只给 `--template` = 只做结构移植，不做期刊规范判定（结果包目录名为 `template-only`）。
 
@@ -84,13 +99,15 @@ python scripts/sci.py run paper/manuscript.docx --template ~/Downloads/journal-t
 | `journals new <id>` | 生成新期刊配置骨架 |
 | `journals path` | 打印三个配置查找目录（内置 / 用户级 / 项目级） |
 | `convert <input> --journal <id>` | 只做格式转换，不做质检、不建结果包 |
-| `convert <input> --template <文件>` | 只做模板移植（LaTeX 用 `.tex` 主文件，Word 用 `.docx`） |
+| `convert <input> --template <文件>` | 只做模板移植（LaTeX 用 `.tex` 主文件，Word 用 `.docx`；也可直接给 `.zip` 模板包） |
 | `qc <input> --journal <id>` | 只做质量检查 |
 | `diff <before> <after>` | 对比两份稿件的内容差异（模型级比较，不是字节比较） |
 | `run <input> --journal <id>` | 完整流程 + 结果包 |
-| `run <input> --template <文件>` | 完整流程，以官方模板为骨架（`--journal` 可省略） |
+| `run <input> --template <文件或.zip>` | 完整流程，以官方模板为骨架（`--journal` 可省略） |
 
 `<input>` 可以是目录（LaTeX 项目）、`.tex`、`.docx` 或 `.zip`。
+`--template` 可以是 `.tex` / `.docx` 主文件，也可以是官网下载的 `.zip` 模板包；
+包内有多份模板时用 `kit.zip::包内路径` 指定。
 `--journal` 与 `--template` 至少给一个；两个都给时，配置出规则、模板出结构。
 
 ## 结果包结构
@@ -132,6 +149,7 @@ out/submission/
 | `ABS` `LEN` | 摘要与篇幅 | `DOC` | Word 文档 |
 | `FIG` | 图片 | `DEC` | 投稿声明 |
 | `TAB` | 表格 | `MET` `CFG` | 内容与元信息 |
+| `CVT` | 转换与模板 | | |
 
 每个码只对应一个含义和一个级别（错误 / 警告 / 提示）。完整码表与处置建议见 `references/quality-checks.md`。
 

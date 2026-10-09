@@ -15,8 +15,12 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import shutil
+import tempfile
+import zipfile
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -476,16 +480,134 @@ def scaffold(journal_id: str, name: str = "", cwd: str | Path | None = None, out
 
 TEMPLATE_ONLY_ID = "template-only"
 
+# 官网下载的模板几乎都是压缩包（Elsevier 的 elsarticle kit、Springer 的
+# svjour3 kit…），Overleaf 下载的原稿同理。这里在解析阶段统一解包，让
+# `--template kit.zip` 等价于「手工解压后指向包内主文件」。
+ARCHIVE_SUFFIXES = {".zip"}
 
-def resolve_template_path(spec: str, cfg: JournalConfig | None = None) -> Path | None:
-    """解析模板文件路径。
+# 解包缓存放系统临时目录：模板解析这一层拿不到「结果包工作目录」，
+# 且同一模板会被 convert / run 反复解析。目录名带内容指纹，模板换版本自动重建。
+ARCHIVE_CACHE_DIR = Path(tempfile.gettempdir()) / "sci-trans-templates"
+_ARCHIVE_MARKER = ".sci-trans-extracted"
 
-    依次尝试：绝对路径 → 相对期刊配置所在目录 → 相对当前工作目录 →
-    相对技能根目录（这样内置模板可以用 `assets/templates/xxx.tex` 这种相对写法）。
+# macOS 资源叉、Office 临时文件，不能当模板候选
+_JUNK_DIRS = {"__MACOSX"}
+_JUNK_PREFIXES = ("._", "~$")
+
+# 主文件命名偏好：命中越靠前越像「模板主文件」
+_MAIN_NAME_HINTS = (
+    "main", "template", "sample", "manuscript", "article", "paper", "submission",
+)
+
+
+@dataclass
+class TemplateResolution:
+    """模板解析结果。
+
+    只返回 Path 无法把「为什么没解析出来」带进质检报告，所以这里连
+    原因与提醒一起返回，由调用方决定是回退还是照常转换。
+    """
+
+    path: Path | None = None
+    reason: str = ""          # 解析失败的原因（用于报告）
+    note: str = ""            # 解析成功但需要提醒（如包内有多份候选）
+    archive: Path | None = None  # 若来自压缩包，记下包路径
+
+
+def _is_junk(p: Path) -> bool:
+    return any(part in _JUNK_DIRS for part in p.parts) or p.name.startswith(_JUNK_PREFIXES)
+
+
+def _pick_archive_main(root: Path, fmt: str) -> tuple[Path | None, list[Path]]:
+    """从解包目录里挑出模板主文件，返回 (主文件或 None, 全部候选)。
+
+    候选多于一个时必须提醒用户：同一个模板包里可能有好几份版式不同、
+    引用样式也不同的模板（elsarticle kit 里 num / harv / num-names 就是
+    三份不同的模板），猜错会静默产出不符合投稿要求的稿子。
+    """
+    pattern = "*.docx" if fmt == "docx" else "*.tex"
+    cands = [p for p in root.rglob(pattern) if not _is_junk(p)]
+    if not cands:
+        return None, []
+
+    def rank(p: Path) -> tuple:
+        depth = len(p.relative_to(root).parts)
+        if fmt == "docx":
+            return (depth, str(p))
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            text = ""
+        # 同时含 \documentclass 与 \begin{document} 的才当得起「骨架」
+        strong = ("\\documentclass" in text) + ("\\begin{document}" in text)
+        hint = int(p.stem.lower() in _MAIN_NAME_HINTS)
+        return (-strong, -hint, depth, str(p))
+
+    ordered = sorted(cands, key=rank)
+    return ordered[0], ordered
+
+
+def _extract_archive(archive: Path, log: Log | None = None) -> Path:
+    """把模板压缩包解到缓存目录，返回解包根目录（重复调用复用缓存）。"""
+    try:
+        st = archive.stat()
+    except OSError as exc:
+        raise ValueError(f"无法读取压缩包：{archive}（{exc}）") from exc
+
+    key = hashlib.sha1(
+        f"{archive.resolve()}|{st.st_size}|{st.st_mtime_ns}".encode("utf-8")
+    ).hexdigest()[:12]
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", archive.stem)[:40] or "template"
+    dest = ARCHIVE_CACHE_DIR / f"{safe}-{key}"
+
+    if (dest / _ARCHIVE_MARKER).is_file():
+        if log:
+            log.step(f"模板压缩包复用已解包缓存：{dest}")
+        return dest
+
+    if dest.exists():
+        shutil.rmtree(dest, ignore_errors=True)
+    dest.mkdir(parents=True, exist_ok=True)
+    try:
+        with zipfile.ZipFile(archive) as z:
+            z.extractall(dest)
+    except (zipfile.BadZipFile, OSError) as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise ValueError(f"模板压缩包无法解开：{archive}（{exc}）") from exc
+
+    # 标记写完才算解包成功，避免把半截目录当缓存复用
+    (dest / _ARCHIVE_MARKER).write_text(archive.name, encoding="utf-8")
+    if log:
+        log.step(f"已解包模板压缩包 {archive.name} → {dest}")
+    return dest
+
+
+def resolve_template(
+    spec: str,
+    cfg: JournalConfig | None = None,
+    fmt: str = "",
+    log: Log | None = None,
+) -> TemplateResolution:
+    """解析模板：单文件、压缩包，或压缩包内指定文件。
+
+    * 单文件 —— LaTeX 的 `.tex` 主文件 / Word 的 `.docx`
+    * 压缩包 —— 官网下载的模板包，自动解包并取包内主文件
+    * 压缩包内指定 —— `kit.zip::elsarticle-template-num.tex`，包内有多份
+      模板、需要明确指定用哪一份时用
+
+    查找顺序：绝对路径 → 相对期刊配置所在目录 → 相对当前工作目录 →
+    相对技能根目录（内置模板可以用 `assets/templates/xxx.tex` 这种相对写法）。
     """
     if not spec:
-        return None
-    p = Path(spec)
+        return TemplateResolution(reason="未提供模板路径")
+
+    raw = str(spec)
+    inner = ""
+    if "::" in raw:
+        raw, inner = raw.split("::", 1)
+        inner = inner.strip().lstrip("/\\")
+
+    p = Path(raw)
     cands: list[Path] = []
     if p.is_absolute():
         cands.append(p)
@@ -494,13 +616,76 @@ def resolve_template_path(spec: str, cfg: JournalConfig | None = None) -> Path |
             cands.append(Path(cfg.path).parent / p)
         cands.append(Path.cwd() / p)
         cands.append(skill_root() / p)
+
+    hit: Path | None = None
     for c in cands:
         try:
             if c.is_file():
-                return c.resolve()
+                hit = c.resolve()
+                break
         except OSError:
             continue
-    return None
+    if hit is None:
+        return TemplateResolution(
+            reason=f"文件不存在（找过：{'、'.join(str(c) for c in cands)}）"
+        )
+
+    if hit.suffix.lower() not in ARCHIVE_SUFFIXES:
+        if inner:
+            return TemplateResolution(
+                reason=f"{hit.name} 不是压缩包，不能用 :: 指定包内文件"
+            )
+        return TemplateResolution(path=hit)
+
+    # ---- 压缩包：解包后取主文件 ----
+    try:
+        root = _extract_archive(hit, log)
+    except ValueError as exc:
+        return TemplateResolution(reason=str(exc), archive=hit)
+
+    if not fmt:  # 调用方没说是哪条流水线时，按包内实际内容判断
+        fmt = "latex" if any(not _is_junk(x) for x in root.rglob("*.tex")) else "docx"
+
+    if inner:
+        target = (root / inner).resolve()
+        try:
+            target.relative_to(root.resolve())
+        except ValueError:
+            return TemplateResolution(
+                reason=f"包内路径越界：{inner}", archive=hit
+            )
+        if not target.is_file():
+            return TemplateResolution(
+                reason=f"包内找不到指定文件：{inner}", archive=hit
+            )
+        return TemplateResolution(path=target, archive=hit)
+
+    main, all_cands = _pick_archive_main(root, fmt)
+    if main is None:
+        want = ".docx" if fmt == "docx" else ".tex"
+        return TemplateResolution(
+            reason=f"压缩包里没有 {want} 主文件（包内可能只是说明文档或宏包）",
+            archive=hit,
+        )
+    note = ""
+    if len(all_cands) > 1:
+        note = str(main.relative_to(root))
+        if log:
+            names = "、".join(str(x.relative_to(root)) for x in all_cands[:8])
+            log.warn(
+                f"模板包内有 {len(all_cands)} 份候选主文件，已选用 {note}；候选：{names}"
+            )
+    return TemplateResolution(path=main, note=note, archive=hit)
+
+
+def resolve_template_path(
+    spec: str,
+    cfg: JournalConfig | None = None,
+    fmt: str = "",
+    log: Log | None = None,
+) -> Path | None:
+    """`resolve_template` 的薄封装：只要路径、不要原因。"""
+    return resolve_template(spec, cfg, fmt, log).path
 
 
 def from_template(template: str | Path, fmt: str = "") -> JournalConfig:

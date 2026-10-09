@@ -36,7 +36,7 @@ from .changes import (
     CH_STRUCTURE,
     ChangeLog,
 )
-from .issues import CAT_LATEX, IssueBag, Location
+from .issues import CAT_FILE, CAT_LATEX, IssueBag, Location
 from .journal import JournalConfig
 from .latex_parse import read_group, strip_comments
 from .util import Log, normalize_ws, read_text, rel, write_text
@@ -607,11 +607,17 @@ def _merge_spans(spans: list[tuple[int, int]], text: str) -> list[list[int]]:
     return merged
 
 
-def _resolve_template_path(spec: str, cfg: JournalConfig | None = None) -> Path | None:
-    """兼容入口：实际解析逻辑在 journal.resolve_template_path。"""
-    from .journal import resolve_template_path
+def _resolve_template(spec: str, cfg: JournalConfig | None = None,
+                      log: Log | None = None):
+    """兼容入口：实际解析逻辑在 journal.resolve_template（含压缩包解包）。"""
+    from .journal import resolve_template
 
-    return resolve_template_path(spec, cfg)
+    return resolve_template(spec, cfg, fmt="latex", log=log)
+
+
+def _resolve_template_path(spec: str, cfg: JournalConfig | None = None) -> Path | None:
+    """只要路径的旧入口，保留给外部调用。"""
+    return _resolve_template(spec, cfg).path
 
 
 def _copy_project(src_root: Path, out: Path, skip: set[Path] | None = None) -> int:
@@ -1204,15 +1210,28 @@ def convert_latex(
     base = (adapter.get("base") or "surgery").lower()
     if base == "template":
         tpl_spec = adapter.get("template") or ""
-        tpl_path = _resolve_template_path(tpl_spec, cfg)
+        tpl_res = _resolve_template(tpl_spec, cfg, log)
+        tpl_path = tpl_res.path
         if tpl_path is None:
+            reason = f"（{tpl_res.reason}）" if tpl_res.reason else ""
             bag.warn(
                 "CVT012", CAT_LATEX,
-                f"配置指定了模板模式，但模板文件不存在或无法解析：{tpl_spec!r}；已回退到定点手术模式",
+                f"配置指定了模板模式，但模板无法作为骨架使用：{tpl_spec!r}{reason}；已回退到定点手术模式",
                 location=Location(file=str(tpl_spec)),
-                suggestion="确认 output.latex.template 指向官方模板的主 .tex 文件（可用绝对路径）。",
+                suggestion=(
+                    "确认 output.latex.template 指向官方模板的主 .tex 文件；"
+                    "若给的是官网下载的压缩包（.zip），包内需含 .tex 主文件，"
+                    "包内有多份时用 kit.zip::模板文件名 指定。"
+                ),
             )
         else:
+            if tpl_res.note:
+                bag.warn(
+                    "CVT013", CAT_FILE,
+                    f"模板包内有多份候选主文件，已自动选用 {tpl_res.note}；如不是想要的那份，请用 kit.zip::包内路径 明确指定",
+                    location=Location(file=str(tpl_res.archive or tpl_path)),
+                    suggestion="不同候选往往对应不同引用样式（如 elsarticle 的 num / harv），选错会产出不符合投稿要求的稿子。",
+                )
             try:
                 return convert_latex_template(ms, cfg, tpl_path, out, changes, bag, log)
             except TemplateError as exc:

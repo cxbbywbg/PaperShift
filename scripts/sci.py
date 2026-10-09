@@ -8,8 +8,13 @@
     python sci.py inspect  paper/main.tex
     python sci.py run      paper/main.tex --journal ieee-trans -o out
     python sci.py run      paper/manuscript.docx --journal elsevier-generic -o out
+    python sci.py run      paper.zip --template journal-kit.zip -o out
     python sci.py qc       paper/manuscript.docx --journal ieee-trans
     python sci.py diff     paper/main.tex out/submission/journals/ieee-trans/src
+
+输入支持目录（LaTeX 项目）、`.zip`、`.tex`、`.docx`；
+`--template` 支持 `.tex` / `.docx` 主文件，也支持官网下载的 `.zip` 模板包
+（包内有多份模板时用 `kit.zip::包内路径` 指定）。
 
 所有子命令在出错时返回非 0 退出码，方便脚本串联。
 """
@@ -305,7 +310,7 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("convert", help="只做格式转换（不含质检与结果包）")
     c.add_argument("input")
     c.add_argument("--journal", help="期刊配置 id（与 --template 至少给一个）")
-    c.add_argument("--template", help="官方模板文件：LaTeX 用 .tex 主文件，Word 用 .docx")
+    c.add_argument("--template", help="官方模板：LaTeX 用 .tex 主文件，Word 用 .docx，也可直接给官网下载的 .zip 模板包（包内多份时用 kit.zip::包内路径 指定）")
     c.add_argument("-o", "--output", required=True)
     c.add_argument("-v", "--verbose-changes", action="store_true")
     add_common(c)
@@ -331,7 +336,7 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("run", help="完整流程：解析→转换→编译→质检→差异→结果包")
     r.add_argument("input")
     r.add_argument("--journal", help="期刊配置 id（与 --template 至少给一个）")
-    r.add_argument("--template", help="官方模板文件：LaTeX 用 .tex 主文件，Word 用 .docx")
+    r.add_argument("--template", help="官方模板：LaTeX 用 .tex 主文件，Word 用 .docx，也可直接给官网下载的 .zip 模板包（包内多份时用 kit.zip::包内路径 指定）")
     r.add_argument("-o", "--output", default="submission", help="结果包根目录")
     r.add_argument("--no-pdf", action="store_true", help="跳过 PDF 预览")
     add_common(r)

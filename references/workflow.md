@@ -25,6 +25,27 @@ python scripts/sci.py run paper/main.tex \
     --template ~/Downloads/elsarticle-template-num.tex -o out
 ```
 
+### 更常见的情况：原稿和模板都是压缩包
+
+Overleaf 导出的原稿是 `.zip`，期刊官网下载的模板 kit 也是 `.zip`。**两个都不需要手工解压**，直接指过去：
+
+```bash
+python scripts/sci.py run ~/Downloads/my-paper.zip \
+    --template ~/Downloads/elsarticle.zip -o out
+
+# 包内有多份模板时，指定用哪一份
+python scripts/sci.py run ~/Downloads/my-paper.zip \
+    --template '~/Downloads/elsarticle.zip::elsarticle-template-num.tex' -o out
+```
+
+处理规则：
+
+- 自动解包并挑出包内主文件（`.tex` / `.docx`），**结果与手工解压后指向主文件逐字节一致**。
+- 包内的 `.cls` / `.bst` / `.sty` 随结果包提供，保证可独立编译。
+- 包内 `readme`、作者须知、`__MACOSX` 垃圾不复制，避免污染结果包。
+- 包内**只有一份**主文件 → 直接用。包内**有多份** → 报 `CVT013` 并列出候选，**必须人工过目**（elsarticle kit 里 num / harv / num-names 是三份引用样式不同的模板，选错会产出不符合投稿要求的稿子）。
+- 压缩包解不开、或包内根本没有主文件 → 报 `CVT012` 并写明原因，自动回退定点手术模式。
+
 **会做什么**
 
 - **保留模板的导言区**：`\documentclass`、类选项、宏包体系原样不动——这正是期刊要求的版式。
@@ -39,6 +60,7 @@ python scripts/sci.py run paper/main.tex \
 - `diff.md` 的期望结论是"未检测到内容差异"或"正文内容未变；仅补入投稿声明占位"。若出现"检测到对象丢失"，**立即核对**，这是严重问题。
 - `conversion-log.md` 的"未做的改动"一节会说明模板模式下**没有**做什么（例如不重复添加期刊配置要求的宏包）。
 - 若模板里找不到 `\begin{document}`（比如指到了 `.cls` 或说明文件），会报 `CVT012` 并**降级回定点手术**，不会静默失败——这时要回头确认 `--template` 指对了文件。
+- 若报告里出现 `CVT013`，说明模板压缩包里有**多份**候选主文件、系统替你选了一份。**别跳过这条**：去核对报告里写明的"已选用"是不是你要的那份（elsarticle 的 num / harv 引用样式完全不同），不对就用 `kit.zip::包内路径` 重新指定。
 - 若本机没有 TeX，报告里是 `LTX100`（未执行编译）；模板模式改动了导言区结构，**建议在装了 TeX 的环境编译一次**。
 
 ---

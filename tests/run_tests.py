@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -416,6 +417,134 @@ def test_template_mode() -> None:
     check("模板缺失：给出降级说明（CVT012）而不是静默失败", "CVT012" in rpt)
 
 
+def _make_zip(dest: Path, entries: dict[str, object]) -> Path:
+    """按 {包内路径: 源文件 Path 或文本} 打一个 zip。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(dest, "w") as z:
+        for inner, src in entries.items():
+            if isinstance(src, Path):
+                z.write(src, inner)
+            else:
+                z.writestr(inner, str(src))
+    return dest
+
+
+def test_template_archive() -> None:
+    """模板是压缩包时的处理。
+
+    真实场景：Overleaf 导出的原稿是 zip，期刊官网下载的模板 kit 也是 zip。
+    用户要的是「把我这个包里的内容装进那个包里的模板」，不该逼他手工解压。
+    """
+    print("\n== 模板压缩包（官网 kit / Overleaf 导出）==")
+    # 把解包缓存也关进测试目录，别往系统临时目录里丢东西
+    orig_cache = J.ARCHIVE_CACHE_DIR
+    J.ARCHIVE_CACHE_DIR = OUT / "tpl-cache"
+    tpl_tex = TEMPLATE_KIT / "myjournal-template.tex"
+    base = tpl_tex.read_text(encoding="utf-8")
+    zips = OUT / "zips"
+
+    # 模拟官网 kit：顶层目录 + 宏包 + 主文件 + 干扰文件 + macOS 垃圾
+    kit = _make_zip(zips / "journal-kit.zip", {
+        "kit/myjournal.cls": TEMPLATE_KIT / "myjournal.cls",
+        "kit/myjournal-num.bst": TEMPLATE_KIT / "myjournal-num.bst",
+        "kit/myjournal-template.tex": tpl_tex,
+        "kit/readme.txt": "作者须知，不是模板\n",
+        "kit/__MACOSX/._myjournal-template.tex": "junk",
+    })
+
+    # ---- 基线：直接指向 .tex；对照：指向压缩包 ----
+    res_base = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-base", cwd=ROOT,
+                            make_pdf=False, log=Log(verbose=False), template=str(tpl_tex))
+    res_zip = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip", cwd=ROOT,
+                           make_pdf=False, log=Log(verbose=False), template=str(kit))
+    base_src = Path(res_base["journal_dir"]) / "src"
+    zip_src = Path(res_zip["journal_dir"]) / "src"
+
+    check("模板压缩包：自动解包取主文件，产出与直接指向 .tex 完全一致",
+          (zip_src / "main.tex").read_text(encoding="utf-8")
+          == (base_src / "main.tex").read_text(encoding="utf-8"))
+    check("模板压缩包：包内 .cls/.bst 随结果包提供（可独立编译）",
+          (zip_src / "myjournal.cls").is_file()
+          and (zip_src / "myjournal-num.bst").is_file())
+    check("模板压缩包：包内干扰文件与 macOS 垃圾不被复制",
+          not (zip_src / "readme.txt").exists()
+          and not any("__MACOSX" in p.parts for p in zip_src.rglob("*")))
+    check("模板压缩包：包内只有一份模板时不报多候选提醒",
+          "CVT013" not in (Path(res_zip["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
+
+    # ---- 包内多份候选（elsarticle kit 就是这样）：必须提醒 ----
+    multi = _make_zip(zips / "multi.zip", {
+        "kit/myjournal.cls": TEMPLATE_KIT / "myjournal.cls",
+        "kit/elsarticle-template-num.tex": base,
+        "kit/elsarticle-template-harv.tex": base.replace("myjournal-num", "myjournal-harv"),
+    })
+    res_m = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-multi", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(multi))
+    check("模板压缩包：包内多份候选时提醒用户（CVT013）",
+          "CVT013" in (Path(res_m["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
+
+    res_p = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-pick", cwd=ROOT, make_pdf=False,
+                         log=Log(verbose=False),
+                         template=f"{multi}::kit/elsarticle-template-num.tex")
+    t_p = (Path(res_p["journal_dir"]) / "src" / "main.tex").read_text(encoding="utf-8")
+    check("模板压缩包：zip::包内路径 可指定用哪一份模板",
+          "\\bibliographystyle{myjournal-num}" in t_p
+          and "CVT013" not in (Path(res_p["journal_dir"]) / "report.md").read_text(encoding="utf-8"))
+
+    # ---- 失败路径：必须降级并说清原因，不能静默 ----
+    broken = zips / "broken.zip"
+    broken.write_bytes(b"not a zip at all")
+    res_b = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-broken", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(broken))
+    rpt_b = (Path(res_b["journal_dir"]) / "report.md").read_text(encoding="utf-8")
+    check("模板压缩包：坏包降级并写明原因（CVT012）",
+          "CVT012" in rpt_b and "无法解开" in rpt_b)
+
+    notex = _make_zip(zips / "no-tex.zip", {"a/readme.txt": "只有说明文档\n"})
+    res_n = run_pipeline(LATEX_FIX, "", OUT / "tpl-zip-notex", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(notex))
+    rpt_n = (Path(res_n["journal_dir"]) / "report.md").read_text(encoding="utf-8")
+    check("模板压缩包：包内没有主文件时降级并写明原因（CVT012）",
+          "CVT012" in rpt_n and "没有 .tex 主文件" in rpt_n)
+
+    # ---- Word 侧同样支持 ----
+    word_zip = _make_zip(zips / "word-template.zip", {
+        "word/manuscript-template.docx": DOCX_FIX,
+        "word/guide.txt": "作者须知\n",
+    })
+    res_w = run_pipeline(DOCX_FIX, "", OUT / "tpl-zip-docx", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(word_zip))
+    m_w = docx_parse.parse_docx(Path(res_w["main_file"]), Log(verbose=False),
+                                media_dir=OUT / "tpl-zip-docx-media")
+    ms_w = docx_parse.parse_docx(DOCX_FIX, Log(verbose=False),
+                                 media_dir=OUT / "tpl-zip-docx-src")
+    d_w = diff_manuscripts(ms_w, m_w)
+    check("Word 模板压缩包：走模板模式、零内容差异、图片全保",
+          d_w["identical"] and len(m_w.figures) == 4, f"fig={len(m_w.figures)}")
+
+    # ---- 用户的实际场景：原稿 zip + 模板 zip ----
+    paper_zip = _make_zip(
+        zips / "overleaf-export.zip",
+        {f"my-paper/{p.relative_to(LATEX_FIX).as_posix()}": p
+         for p in sorted(LATEX_FIX.rglob("*")) if p.is_file()},
+    )
+    res_c = run_pipeline(paper_zip, "", OUT / "tpl-zip-both", cwd=ROOT,
+                         make_pdf=False, log=Log(verbose=False), template=str(kit))
+    src_c = Path(res_c["journal_dir"]) / "src"
+    check("原稿压缩包 + 模板压缩包：端到端可用且结果与解压后一致",
+          (src_c / "main.tex").read_text(encoding="utf-8")
+          == (base_src / "main.tex").read_text(encoding="utf-8")
+          and (src_c / "myjournal.cls").is_file())
+
+    from sci_core.journal import _extract_archive
+
+    c1 = _extract_archive(kit)
+    c2 = _extract_archive(kit)
+    check("模板压缩包：同一模板重复解析命中解包缓存（不重复解包）",
+          c1 == c2 and (c1 / "kit/myjournal-template.tex").is_file(), str(c1))
+    J.ARCHIVE_CACHE_DIR = orig_cache
+
+
 def test_rule_binding() -> None:
     """配置里的规则必须真的绑到检查上。
 
@@ -500,7 +629,8 @@ def main() -> int:
 
     for fn in (test_latex_parse, test_latex_qc, test_latex_convert_roundtrip,
                test_docx_parse, test_docx_convert, test_pipeline,
-               test_template_mode, test_rule_binding, test_issue_code_hygiene):
+               test_template_mode, test_template_archive, test_rule_binding,
+               test_issue_code_hygiene):
         try:
             fn()
         except Exception as exc:
