@@ -259,6 +259,7 @@ python scripts/sci.py run paper/main.tex --template ~/Downloads/elsarticle-templ
 ```
 
 模板目录里的 `.cls` / `.bst` / `.sty` 会自动复制进结果包，保证结果包**可独立编译**。
+复制规则：**模板主文件同目录下的 LaTeX 支持文件**一律随包；图片与 `.bib` 只在模板主文件真的引用它们时才带（官方 kit 里普遍塞着 `sample.pdf`、`doc/`、`thumbnails/`，照单全收会让你把这些样例连同稿子一起投出去）。
 `--template` 必须指向**主文件**（LaTeX 的 `.tex`、Word 的 `.docx`）；指错了会报 `CVT012` 并降级回定点手术。
 
 **A2. 原稿和模板都是压缩包**（Overleaf 导出 + 官网 kit）
@@ -272,6 +273,31 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 
 两个包都不用手工解压，结果与「手工解压后指向主文件」**逐字节一致**。包内的 `.cls`/`.bst` 照样随结果包提供，`readme`、作者须知、`__MACOSX` 垃圾不复制。
 若报告里出现 `CVT013`，说明包内有**多份**候选主文件、系统替你选了一份——**别跳过这条**，去核对报告里写明的"已选用"是不是你要的那份（elsarticle 的 num / harv 引用样式完全不同）。
+
+**A3. 盲审稿：作者信息在单独的标题页文件里**
+
+Springer `sn-jnl`、部分期刊模板会把 `\author` / `\affil` 拆到 `Title_Page.tex`，主文件里只剩标题与摘要。工具在**主文件没有作者信息**时会去找同目录下的另一个 `.tex`，但只在**能客观确认是同一篇稿子**时才用：该文件的 `\title` 与主文件标题逐字相同。
+
+```bash
+# 目录里同时有 Manuscript.tex 和 Title_Page.tex 时，作者/单位会被自动补入
+python scripts/sci.py run ~/Downloads/my-paper.zip --template ~/Downloads/els-cas.zip -o out
+# 日志里会出现：主文件未含作者信息，已从同项目的标题页 Title_Page.tex 补入 8 位作者 / 2 个单位
+```
+
+标题对不上就一律留空并列进「需作者确认」——同目录里还可能有回复审稿人意见书等别的文档，不能见 `\author` 就拿来用。
+
+**A4. 元信息写法差异（不用改原稿）**
+
+不同文档类的元信息写法差别很大，工具都认得：
+
+| 文档类 | 标题 | 摘要 | 关键词 |
+|---|---|---|---|
+| Elsevier elsarticle / CAS | `\title{...}` | `\begin{abstract}...\end{abstract}` | `\begin{keyword}...\end{keyword}` + `\sep` |
+| Springer sn-jnl | `\title[短]{长}` | `\abstract{...}`（**命令式**） | `\keywords{a, b, c}`（逗号分隔） |
+| IEEE | `\title{...}` | `\begin{abstract}...\end{abstract}` | `\begin{IEEEkeywords}...\end{IEEEkeywords}` |
+
+`\title[短标题]{长标题}` 取的是**长标题**（短标题进 `\shorttitle`/`runningtitle` 的映射规则）。
+目标模板带 `research highlights` 环境（Elsevier 等必填）而原稿没有时，会明确列进「需作者确认」而不是留一堆空 `\item` 让你自己发现。
 
 **B. LaTeX 项目改投 IEEE Transactions**
 
@@ -358,6 +384,7 @@ python tests/run_tests.py        # 退出码 0 = 全通过
 ```
 
 测试是**缺陷注入型**：夹具里刻意埋了重复题注、缺图、文献不匹配、越界引用等缺陷，验证检查项真的能报出来。另有一组 `test_rule_binding` 逐条验证"配置里设了某规则 → 对应检查真的会触发"，防止规则写了却不生效。
+`test_frontmatter_regression` 钉住真实投稿里踩过的坑（Springer 命令式 `\abstract{}`、模板 `\title` 落在作者块区间内被吞、示例文献库没被替换反而往后追加到 `\end{document}` 之后、独立标题页的作者/单位映射）。
 
 代码结构：
 
@@ -391,3 +418,6 @@ tools/install_skill.py  白名单式组装 + 多客户端安装
 - **Word 参考文献**若来自结构化文献字段（EndNote/Zotero 域）可较可靠转换；若是手打普通文本，只能解析后标记为"需人工确认"。
 - 内置期刊配置未经逐条核对，报告中会出现 `CFG001` 提示，属预期行为。
 - **模板压缩包只在解析阶段解包**：解到系统临时目录 `sci-trans-templates/`（目录名带内容指纹，模板换版本自动重建；重复使用直接命中缓存）。它不写进你的下载目录，也不进结果包。
+- **作者信息来自独立标题页时**：只在「另一个 `.tex` 的 `\title` 与主文件逐字相同」时才自动补入，并在转换记录里写明取自哪个文件。对不上就留空并列进「需作者确认」，绝不猜。
+- **嵌套在分组参数里的引用**：`scan_commands` 读到配平的分组会整块跳过，所以 `\textcolor{red}{\autoref{fig:x}}`、`\subfloat[题注\label{sub}]{\includegraphics{...}}` 这类写法额外走一遍不区分位置的补扫。补扫只做**新增**（不改已有结果），并过滤掉 `\ref{#1}` 这种宏体占位。
+- **不认「导言区里对 `\abstract` 的重定义」**：命令式摘要只取 `\begin{document}` 之后出现的那个。

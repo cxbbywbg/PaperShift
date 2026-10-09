@@ -361,6 +361,54 @@ def detex(text: str, keep_math: bool = True) -> str:
     return s.strip()
 
 
+_FOOTNOTE_LIKE_RE = re.compile(
+    r"(?i)^\s*(?:corresponding\b|e-?mail\b|equal(?:ly)?\s+contribut|co-?first\b|"
+    r"contributed\s+equally|present\s+address\b|also\s+at\b|on\s+leave\b)"
+)
+
+
+_KEY_SHAPE_RE = re.compile(r"^[^\s\\#{}$%&~^]+$")
+
+
+def _plausible_key(s: str) -> bool:
+    r"""判断一个字符串像不像标签 / 引用键。
+
+    兜底扫描是纯文本正则，容易把宏体（`\ref{#1}`）或散文当成引用，
+    这里用形状过滤挡一道：不含空白与 TeX 特殊字符。
+    """
+    return bool(s) and bool(_KEY_SHAPE_RE.match(s))
+
+
+def _looks_like_footnote(text: str) -> bool:
+    r"""判断 `\thanks{...}` 的文本是脚注（通讯作者/邮箱等）还是单位名称。
+
+    `\author[1]{Bo Liu\thanks{Corresponding author. Email: x@y.edu}}` 里的
+    thanks 是脚注，不是单位；把它当单位登记会生成一条内容为
+    "Corresponding author. Email: ..." 的假 \affiliation。
+    """
+    return bool(_FOOTNOTE_LIKE_RE.match(text)) or "@" in text
+
+
+def _collect_abstract(ms: M.Manuscript, raw: str) -> None:
+    r"""登记摘要正文（原文 + 纯文本 + 结构化小标题）。
+
+    两种写法共用：环境式 `\begin{abstract}...\end{abstract}`（Elsevier/IEEE）
+    与命令式 `\abstract{...}`（Springer sn-jnl 等）。
+    """
+    ms.metadata.abstract_raw = raw.strip("\n").strip()
+    ms.metadata.abstract = normalize_ws(detex(raw))
+    # 结构化摘要：识别 "Background:" 这类小标题
+    for m in re.finditer(
+        r"(?:^|\n)\s*\\(?:textbf|emph|textit)\{([^}]{2,40})\}\s*[:：]?", raw
+    ):
+        ms.metadata.abstract_structured.setdefault(m.group(1).strip(), "")
+    if not ms.metadata.abstract_structured:
+        for m in re.finditer(
+            r"(?m)^\s*([A-Z][A-Za-z \-]{2,30})\s*[:：]\s*(.+)$", detex(raw)
+        ):
+            ms.metadata.abstract_structured[m.group(1).strip()] = normalize_ws(m.group(2))
+
+
 # --------------------------------------------------------------------------
 # 项目展平
 # --------------------------------------------------------------------------
@@ -517,6 +565,11 @@ class LatexParser:
             f, ln = flat.locate(line)
             return M.Span(file=rel(f, root) if f else "", line=ln)
 
+        # `\begin{document}` 的位置：用来区分「真元信息」和「导言区里的重定义」。
+        # 例如 `\renewcommand\abstract[1]{...}`（不带花括号的那种写法）会让
+        # 命令扫描器把后面的 `\abstract[1]{...}` 当成真命令——加了位置判断就不会误判。
+        doc_open = body.find("\\begin{document}")
+
         # ---- 前言 ----
         graphics_paths: list[str] = []
         for c in cmds:
@@ -552,7 +605,7 @@ class LatexParser:
                 # 顺手补进 affiliations，否则换模板时会丢掉单位信息
                 for a in parsed:
                     txt = a.get("affil_text")
-                    if not txt:
+                    if not txt or _looks_like_footnote(txt):
                         continue
                     # \thanks{A and B} 表示作者同时属于两个单位，拆开登记
                     for part in re.split(r"\s+and\s+", txt):
@@ -581,6 +634,11 @@ class LatexParser:
                 )
             elif c.name in ("runningtitle", "shorttitle", "markboth"):
                 ms.metadata.running_title = normalize_ws(detex(c.arg))
+            elif c.name == "abstract" and doc_open >= 0 and c.start > doc_open:
+                # 命令式摘要：Springer sn-jnl 等文档类用 `\abstract{...}` 而不是
+                # `\begin{abstract}...\end{abstract}`。只认 `\begin{document}` 之后
+                # 出现的那个，避免把导言区里对 \abstract 的重定义当成摘要正文。
+                _collect_abstract(ms, c.arg)
             elif c.name == "correspondingauthor":
                 ms.metadata.corresponding = normalize_ws(detex(c.arg))
             elif c.name == "date":
@@ -600,20 +658,28 @@ class LatexParser:
         for env in envs:
             if env.name == "abstract":
                 raw = body[env.body_start : env.body_end]
-                ms.metadata.abstract_raw = raw.strip("\n").strip()
-                text = normalize_ws(detex(raw))
-                ms.metadata.abstract = text
-                # 结构化摘要：识别 "Background:" 这类小标题
-                for m in re.finditer(
-                    r"(?:^|\n)\s*\\(?:textbf|emph|textit)\{([^}]{2,40})\}\s*[:：]?", raw
-                ):
-                    ms.metadata.abstract_structured.setdefault(m.group(1).strip(), "")
-                if not ms.metadata.abstract_structured:
-                    for m in re.finditer(
-                        r"(?m)^\s*([A-Z][A-Za-z \-]{2,30})\s*[:：]\s*(.+)$", detex(raw)
-                    ):
-                        ms.metadata.abstract_structured[m.group(1).strip()] = normalize_ws(m.group(2))
+                # 环境式摘要优先于命令式，但空环境不覆盖已解析到的内容
+                if raw.strip():
+                    _collect_abstract(ms, raw)
                 break
+
+        # ---- 研究亮点（Elsevier 等要求 3–5 条，每条 ≤85 字符）----
+        for env in envs:
+            if env.name in ("highlights", "highlights*"):
+                raw = body[env.body_start : env.body_end]
+                for part in re.split(r"\\item\b(?:\[[^\]]*\])?", raw)[1:]:
+                    text = normalize_ws(detex(part))
+                    if not text:
+                        continue
+                    ms.metadata.highlights.append(text)
+                    ms.metadata.doc_meta.setdefault("highlights_raw", []).append(
+                        part.strip("\n").strip()
+                    )
+                break
+
+        # ---- 独立标题页：盲审投稿常把作者/单位拆到单独文件 ----
+        if not ms.metadata.authors:
+            self._merge_title_page(ms, root, main, self.log)
 
         # ---- 章节与块 ----
         self._build_sections(ms, body, cmds, envs, loc)
@@ -622,13 +688,24 @@ class LatexParser:
         self._build_floats(ms, body, envs, cmds, loc, root, graphics_paths)
 
         # ---- 引用与交叉引用 ----
-        self._build_citations(ms, cmds, loc)
+        self._build_citations(ms, cmds, loc, body, doc_open)
 
         # ---- 文献 ----
         self._build_bibliography(ms, body, cmds, envs, root, loc)
 
         # ---- 声明 ----
         self._build_declarations(ms, body, cmds, loc)
+
+        # ---- 全量 \label 清单 ----
+        # 质检判断「未定义引用」时只看图/表/公式/章节的标签是不够的：
+        # algorithm 环境里的 \label、`\subfloat[题注\label{sub}]{...}` 这类
+        # 写在可选参数里的标签都收不到，于是明明存在的 \ref 被误报成
+        # 「指向不存在的标签」。这里做一次不区分位置的兜底扫描。
+        ms.metadata.doc_meta["all_labels"] = [
+            m.group(1).strip()
+            for m in re.finditer(r"\\label\s*\{([^}]*)\}", body)
+            if m.group(1).strip()
+        ]
 
         if flat.missing_inputs:
             for name, f, ln in flat.missing_inputs:
@@ -711,7 +788,12 @@ class LatexParser:
             opt_text = normalize_ws(detex(" ".join(opt)))
             if opt_text:
                 for a in authors:
-                    if not a.get("affil"):
+                    cur = a.get("affil") or ""
+                    # 作者自己没有单位标记时用可选参数兜底；另外，若 affil 其实
+                    # 是 `\thanks{Corresponding author. Email: ...}` 这种脚注，
+                    # 也要用可选参数覆盖 —— 否则 `\author[1]{A\thanks{...}}`
+                    # 会因为「有 affil」而拒绝回填，单位标记就丢了。
+                    if not cur or _looks_like_footnote(cur):
                         a["affil"] = opt_text
         return authors
 
@@ -722,6 +804,82 @@ class LatexParser:
             if cand.is_file():
                 return cand
         return None
+
+    # ----------------------------------------------------------- 独立标题页
+
+    @staticmethod
+    def _norm_title(s: str) -> str:
+        """标题归一化：去 LaTeX 转义、抹平空白/标点差异、统一小写，用于逐字比对。"""
+        s = detex(s or "")
+        s = re.sub(r"[\s~\-–—_:：,，.。]+", " ", s)
+        return s.strip().lower()
+
+    def _merge_title_page(self, ms: M.Manuscript, root: Path, main: str, log: Log) -> None:
+        r"""主文件里没有作者时，从同项目的「标题页」文件补入作者与单位。
+
+        盲审投稿常把作者/单位拆到单独文件（`Title_Page.tex` 之类），主文件
+        里只剩标题与摘要。这里只在**能客观确认是同一篇稿子**时才补：同目录
+        下另一个 .tex，其 `\title` 与主文件标题归一化后逐字相同。
+        对不上就一律不动 —— 宁可留空让作者补，也不猜（同目录里还可能有
+        回复审稿人意见书等别的文档，不能见 \author 就拿来用）。
+        """
+        want = self._norm_title(ms.metadata.title)
+        if not want:
+            return
+        main_path = Path(main).resolve()
+        for p in sorted(root.glob("*.tex")):
+            if p.resolve() == main_path:
+                continue
+            try:
+                text = read_text(p)
+            except OSError:
+                continue
+            if "\\author" not in text and "\\affil" not in text:
+                continue
+
+            other_title = ""
+            authors: list[dict] = []
+            affils: list[str] = []
+            for c in scan_commands(strip_comments(text)):
+                if c.name == "title" and not other_title:
+                    other_title = c.arg
+                elif c.name in ("author", "Author"):
+                    authors.extend(self._parse_authors(c.arg, c.opt))
+                elif c.name in ("affil", "affiliation", "affiliations", "institute", "address"):
+                    value = c.args[1] if len(c.args) >= 2 else c.arg
+                    t = normalize_ws(detex(value))
+                    if t:
+                        affils.append(t)
+                        # 标签 -> 单位文本：\affil[2]{School of ...} 的 "2"
+                        # 要能被 \author[2]{...} 找到，否则作者的
+                        # affiliation_key 会退化成 aff1。
+                        key = ""
+                        if len(c.args) >= 2:
+                            key = normalize_ws(detex(c.args[0]))
+                        elif c.opt:
+                            key = normalize_ws(detex(" ".join(c.opt)))
+                        if key:
+                            ms.metadata.doc_meta.setdefault("affiliation_map", {})[key] = t
+            if not authors or self._norm_title(other_title) != want:
+                continue
+
+            ms.metadata.authors = authors
+            ms.metadata.affiliations = affils
+            for a in authors:
+                txt = a.get("affil_text")
+                if not txt or _looks_like_footnote(txt):
+                    continue
+                for part in re.split(r"\s+and\s+", txt):
+                    part = part.strip(" ,;")
+                    if part and part not in ms.metadata.affiliations:
+                        ms.metadata.affiliations.append(part)
+            ms.metadata.doc_meta["title_page_file"] = rel(p, root)
+            log.step(
+                f"主文件未含作者信息，已从同项目的标题页 {p.name} 补入 "
+                f"{len(authors)} 位作者 / {len(ms.metadata.affiliations)} 个单位"
+                f"（\\title 与主文件逐字相同）"
+            )
+            return
 
     # ------------------------------------------------------------- 环境扫描
 
@@ -910,11 +1068,17 @@ class LatexParser:
         fig_no = tab_no = eq_no = 0
 
         # 交叉引用：label -> 引用它的位置（用于判断「谁引用了这个图」）
+        # 用不区分位置的扫描，而不是 scan_commands 的结果 —— 后者读到配平分组
+        # 会整块跳过，`\textcolor{red}{\autoref{fig:x}}` 这类写法会被漏掉，
+        # 于是明明引用过的图被报成「在正文中没有任何引用」。
         ref_use: dict[str, list[int]] = {}
-        for c in cmds:
-            if c.name in REF_COMMANDS and c.arg:
-                for key in c.arg.split(","):
-                    ref_use.setdefault(key.strip(), []).append(c.start)
+        for m in re.finditer(r"\\([A-Za-z]+)\s*\{([^{}]*)\}", body):
+            if m.group(1) not in REF_COMMANDS:
+                continue
+            for key in m.group(2).split(","):
+                key = key.strip()
+                if key:
+                    ref_use.setdefault(key, []).append(m.start())
 
         def refs_of(anchors: list[str]) -> list[str]:
             out: list[str] = []
@@ -950,6 +1114,19 @@ class LatexParser:
                         pass
                     elif c.name in ("subcaption", "subref"):
                         pass
+                # `\subfloat[题注]{\includegraphics{...}}` 这类写法把图片放在
+                # **分组参数内部**，而 scan_commands 读到配平的分组就整块跳过，
+                # 于是这些图会被当成「没有图片文件」。这里补一遍不区分位置的扫描。
+                for m in re.finditer(
+                    r"\\includegraphics\s*(?:\[([^\]]*)\])?\s*\{([^}]*)\}", raw
+                ):
+                    path = m.group(2).strip()
+                    if path and path not in f.files:
+                        f.files.append(path)
+                    if m.group(1) and not f.width:
+                        for o in m.group(1).split(","):
+                            if o.strip().startswith("width"):
+                                f.width = o.strip()
                 # 子图：\subfloat[..]{..} / \subfigure[..]{..} / \begin{subfigure}
                 for m in re.finditer(r"\\subfloat\s*\[([^\]]*)\]\s*\{", raw):
                     f.subfigures.append({"caption": normalize_ws(detex(m.group(1)))})
@@ -1024,7 +1201,7 @@ class LatexParser:
 
     # -------------------------------------------------------------- 引用
 
-    def _build_citations(self, ms, cmds, loc) -> None:
+    def _build_citations(self, ms, cmds, loc, body: str = "", doc_open: int = -1) -> None:
         seen: set[tuple[str, int]] = set()
         for c in cmds:
             if c.name in CITE_COMMANDS and c.args:
@@ -1054,6 +1231,50 @@ class LatexParser:
                             "section": self._owner(c.start),
                             "span": loc(c.line).to_dict(),
                         }
+                    )
+        # 兜底：scan_commands 读到配平的分组会**整块跳过**，所以
+        # `\textcolor{red}{\autoref{fig:x}}`、`\textbf{... \cite{k} ...}`
+        # 这类写在分组参数内部的引用会被漏掉 —— 表现为「图/表在正文里没有
+        # 被引用」和「引用条数偏少」。这里在 \begin{document} 之后补扫一遍。
+        if body and doc_open >= 0:
+            self._collect_grouped_refs(ms, body, doc_open, loc)
+
+    def _collect_grouped_refs(self, ms, body: str, doc_open: int, loc) -> None:
+        r"""补扫分组参数内部的 `\ref` / `\cite`（只做**新增**，不改已有结果）。
+
+        只在 `\begin{document}` 之后扫：导言区里 `\newcommand{\x}{\ref{y}}`
+        这类定义会把宏体当成真引用收进来。引用键的形状也做一次过滤
+        （不含 `\` `#` 空白），进一步挡掉 `\ref{#1}` 这种参数占位。
+        """
+        seen_cite = {(c.key, c.span.line) for c in ms.citations if c.span}
+        seen_ref = {(x.get("command"), x.get("target"), x["span"]["line"]) for x in ms.crossrefs}
+        for m in re.finditer(r"\\([A-Za-z]+)\s*\{([^{}]*)\}", body[doc_open:]):
+            name, arg = m.group(1), m.group(2)
+            pos = doc_open + m.start()
+            line = body.count("\n", 0, pos) + 1
+            if name in REF_COMMANDS:
+                for target in arg.split(","):
+                    target = target.strip()
+                    if not _plausible_key(target) or (name, target, line) in seen_ref:
+                        continue
+                    seen_ref.add((name, target, line))
+                    ms.crossrefs.append(
+                        {
+                            "id": f"xref:{line}:{target}",
+                            "command": name,
+                            "target": target,
+                            "section": self._owner(pos),
+                            "span": loc(line).to_dict(),
+                        }
+                    )
+            elif name in CITE_COMMANDS:
+                for key in arg.split(","):
+                    key = key.strip()
+                    if not _plausible_key(key) or (key, line) in seen_cite:
+                        continue
+                    seen_cite.add((key, line))
+                    ms.citations.append(
+                        M.Citation(key=key, command=name, section=self._owner(pos), span=loc(line))
                     )
 
 

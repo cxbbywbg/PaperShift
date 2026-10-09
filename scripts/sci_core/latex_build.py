@@ -234,9 +234,14 @@ def _metadata_block(ms: M.Manuscript, cfg: JournalConfig, changes: ChangeLog, pa
                 affil=aff_text, thanks=thanks,
             )
             out.append(line)
+        src = ms.metadata.doc_meta.get("title_page_file")
+        reason = "按目标模板的 \\author 命令重新生成（原命令保留在注释中）"
+        if src:
+            reason += (f"；作者/单位取自同项目的标题页文件 {src}"
+                       "（其 \\title 与主文件逐字相同，可确认是同一篇稿子）")
         changes.record(
             CH_METADATA, "作者列表", after=f"{len(authors)} 位作者",
-            reason="按目标模板的 \\author 命令重新生成（原命令保留在注释中）",
+            reason=reason,
             file=path, rule_source=cfg.rule_source("output.latex.metadata"),
             needs_author=True,
         )
@@ -528,12 +533,17 @@ TEX_SPECIALS = {
 
 # 从模板目录复制辅助文件时只认这些后缀 —— 模板常被解压在 Downloads 这类
 # 混杂目录里，无差别复制会污染结果包（也有隐私问题）。
+#
+# 分两类：**LaTeX 支持文件**（文档类/宏包/文献样式，编译必需）一律复制；
+# **图片与 .bib** 只在模板主文件真的引用它们时才复制 —— 官方 kit 里常带
+# 一堆示例 PDF（sample.pdf、doc/、thumbnails/），照单全收会把这些样例
+# 连同稿子一起投出去。
 TEMPLATE_ASSET_SUFFIXES = frozenset({
-    # LaTeX 支持文件
     ".cls", ".sty", ".bst", ".bbx", ".cbx", ".def", ".cfg", ".clo", ".fd",
-    ".ldf", ".ist", ".dtx", ".ins", ".eps", ".bib",
-    # 模板自带的图片/示例图
-    ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff",
+    ".ldf", ".ist", ".dtx", ".ins",
+})
+TEMPLATE_MEDIA_SUFFIXES = frozenset({
+    ".eps", ".bib", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".tif", ".tiff",
 })
 TEMPLATE_ASSET_MAX_BYTES = 20 * 1024 * 1024
 
@@ -641,27 +651,66 @@ def _copy_project(src_root: Path, out: Path, skip: set[Path] | None = None) -> i
     return copied
 
 
-def _copy_template_assets(tpl_dir: Path, out: Path, log: Log) -> list[str]:
-    """复制模板目录里的 **LaTeX 支持文件**（.cls/.bst/.sty/图片等）。
+def _template_asset_refs(main_text: str) -> set[str]:
+    r"""模板主文件里**实际引用**到的图片 / 文献库文件名（小写 basename）。
 
-    两条硬约束：
+    只把 `\includegraphics{...}`、`\bibliography{...}`、`\addbibresource{...}`
+    指向的文件算进来（注释掉的示例不算）。官方 kit 里通常还带一堆示例 PDF、
+    文档目录和缩略图，它们不是编译依赖，不该跟着稿子投出去。
+    """
+    body = strip_comments(main_text)
+    names: set[str] = set()
+    for m in re.finditer(r"\\includegraphics\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}", body):
+        p = m.group(1).strip().replace("\\", "/")
+        if p:
+            names.add(Path(p).name.lower())
+    for m in re.finditer(r"\\(?:bibliography|addbibresource)\s*\{([^}]*)\}", body):
+        for item in m.group(1).split(","):
+            item = item.strip().replace("\\", "/")
+            if not item:
+                continue
+            base = Path(item).name.lower()
+            names.add(base)
+            if not base.endswith(".bib"):
+                names.add(base + ".bib")
+    return names
+
+
+def _copy_template_assets(tpl_dir: Path, out: Path, log: Log,
+                          refs: set[str] | None = None) -> list[str]:
+    r"""复制模板目录里的 **LaTeX 支持文件**（.cls/.bst/.sty 等）。
+
+    四条约束：
 
     * **不复制 .tex** —— 结果包的主文件由本模块生成，多带一份模板 .tex
       会干扰后续「主文件识别」，也会让质检扫到无关文件。
     * **只复制 LaTeX 支持文件后缀** —— 官方模板常常解压在 `~/Downloads`
       这类混着大量无关文件的目录里；无差别复制会把整个下载目录塞进结果包，
       既污染交付物也有隐私问题。
+    * **支持文件限模板主文件同目录** —— kit 常把文档、示例放在 `doc/`、
+      `figs/`、`thumbnails/` 子目录里，LaTeX 默认也不会去子目录找宏包，
+      带进来只是垃圾。同目录下的 `.cls/.bst/.sty` 一律随包，方便作者在同一
+      套模板的单栏/双栏版本之间切换。
+    * **图片与 .bib 只在模板主文件引用时才复制** —— kit 里普遍带
+      `sample.pdf`、`thumbnails/` 这类示例资料，照单全收会让作者把样例
+      文件一起投给期刊，也会在质检里刷出一堆「未被引用的图片」。
     """
+    refs = refs if refs is not None else set()
     copied: list[str] = []
     skipped = 0
-    if not tpl_dir.is_dir():
-        return copied
     for p in sorted(tpl_dir.rglob("*")):
         if p.is_dir() or p.name.startswith(".") or "__MACOSX" in p.parts:
             continue
-        if p.suffix.lower() == ".tex":
+        suffix = p.suffix.lower()
+        if suffix == ".tex":
             continue
-        if p.suffix.lower() not in TEMPLATE_ASSET_SUFFIXES:
+        sibling = p.parent == tpl_dir
+        if suffix in TEMPLATE_ASSET_SUFFIXES and sibling:
+            pass
+        elif (suffix in TEMPLATE_ASSET_SUFFIXES or suffix in TEMPLATE_MEDIA_SUFFIXES) \
+                and p.name.lower() in refs:
+            pass
+        else:
             skipped += 1
             continue
         try:
@@ -679,7 +728,10 @@ def _copy_template_assets(tpl_dir: Path, out: Path, log: Log) -> list[str]:
         shutil.copy2(p, target)
         copied.append(str(p.relative_to(tpl_dir)))
     if skipped:
-        log.step(f"模板目录里另有 {skipped} 个非 LaTeX 支持文件未复制（避免污染结果包）")
+        log.step(
+            f"模板目录里另有 {skipped} 个文件未复制"
+            "（非 LaTeX 支持文件，或模板主文件并未引用，避免污染结果包）"
+        )
     return copied
 
 
@@ -763,6 +815,34 @@ def _mask_comments(text: str) -> str:
     return "".join(out)
 
 
+def _comment_mask(text: str) -> list[bool]:
+    """逐字符标记「是否处于注释中」。
+
+    `_mask_comments` 只给出「看不见注释命令」的副本，但没法回答「这个位置
+    是不是注释」——模板里 `%\\bibliography{cas-refs}` 这类示例占位需要靠
+    这个标记来区分：**保留在注释里的别去动，活着的才替换**。
+    """
+    mask = [False] * len(text)
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if text[i] == "%":
+            while i < n and text[i] != "\n":
+                mask[i] = True
+                i += 1
+            continue
+        i += 1
+    return mask
+
+
+def _live_matches(pattern: re.Pattern, text: str) -> list[re.Match]:
+    """返回 text 里**不在注释中**的 pattern 匹配。"""
+    mask = _comment_mask(text)
+    return [m for m in pattern.finditer(text) if not mask[m.start()]]
+
+
 def _infer_metadata_templates(region: str) -> dict:
     """从模板自带的示例元信息里推断命令写法，供「没有期刊配置」时兜底。
 
@@ -811,36 +891,7 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
     edits: list[tuple[int, int, str]] = []   # (start, end, new_text)，均为原始坐标
     inserts: list[tuple[int, str]] = []      # 需要补入的内容及其插入位置
 
-    # ---- 1. 标题 ----
-    tm = re.search(r"\\title\s*(?:\[[^\]]*\])?\s*\{", masked)
-    title_done = False
-    if tm:
-        try:
-            _inner, end = read_group(region, tm.end() - 1)
-        except Exception:
-            end = -1
-        if end > 0:
-            if title:
-                edits.append((tm.start(), end, "\\title{" + title + "}"))
-                changes.record(
-                    CH_METADATA, "标题", after=title,
-                    reason="套用目标模板的 \\title 命令（标题文字取自原稿，未改写）",
-                    file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
-                )
-            else:
-                edits.append((
-                    tm.start(), end,
-                    "% [sci-trans] 模板标题占位已移除（原稿未解析到标题）",
-                ))
-                changes.record(
-                    CH_METADATA, "标题", before=region[tm.start():end][:60], after="(移除占位)",
-                    reason="原稿未解析到标题，模板的示例标题已移除，需作者补填",
-                    file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
-                    needs_author=True, auto=False,
-                )
-            title_done = True
-
-    # ---- 2. 作者 / 单位命令体系 ----
+    # ---- 1. 作者 / 单位命令体系（先算区间：标题可能落在区间里，要并进新块）----
     spans: list[tuple[int, int]] = []
     for m in re.finditer(r"\\([A-Za-z]+)\s*(?:\[[^\]]*\])?\s*\{", masked):
         if m.group(1) not in FRONT_AUTHOR_CMDS:
@@ -859,9 +910,69 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
         kept = [ln for ln in block.split("\n") if not ln.startswith(kw_prefix)]
         block = "\n".join(kept).strip("\n")
 
+    author_span: tuple[int, int] | None = None
     if spans:
         merged = _merge_spans(spans, region)
-        s, e = merged[0][0], merged[-1][1]
+        author_span = (merged[0][0], merged[-1][1])
+
+    # ---- 2. 标题 ----
+    tm = re.search(r"\\title\s*(?:\[[^\]]*\])?\s*\{", masked)
+    tm_span: tuple[int, int] | None = None
+    if tm:
+        try:
+            _inner, end = read_group(region, tm.end() - 1)
+        except Exception:
+            end = -1
+        if end > 0:
+            tm_span = (tm.start(), end)
+
+    title_done = False
+    if tm_span:
+        if author_span and author_span[0] <= tm_span[0] and tm_span[1] <= author_span[1]:
+            # 标题命令落在「作者/单位命令区」区间之内：那一整段会被新块替换，
+            # 标题必须并进新块，否则会被连带覆盖掉（曾因此整条标题丢失，
+            # 且两个区间重叠导致坐标错位、注释块被截断）。
+            if title:
+                block = "\\title{" + title + "}" + ("\n" + block if block else "")
+                changes.record(
+                    CH_METADATA, "标题", after=title,
+                    reason="套用目标模板的 \\title 命令（标题文字取自原稿，未改写）",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
+                )
+            else:
+                block = ("% [sci-trans] 模板标题占位已移除（原稿未解析到标题）"
+                         + ("\n" + block if block else ""))
+                changes.record(
+                    CH_METADATA, "标题", before=region[tm_span[0]:tm_span[1]][:60], after="(移除占位)",
+                    reason="原稿未解析到标题，模板的示例标题已移除，需作者补填",
+                    file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
+                    needs_author=True, auto=False,
+                )
+            title_done = True
+        elif title:
+            edits.append((tm_span[0], tm_span[1], "\\title{" + title + "}"))
+            changes.record(
+                CH_METADATA, "标题", after=title,
+                reason="套用目标模板的 \\title 命令（标题文字取自原稿，未改写）",
+                file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
+            )
+            title_done = True
+        else:
+            edits.append((
+                tm_span[0], tm_span[1],
+                "% [sci-trans] 模板标题占位已移除（原稿未解析到标题）",
+            ))
+            changes.record(
+                CH_METADATA, "标题", before=region[tm_span[0]:tm_span[1]][:60], after="(移除占位)",
+                reason="原稿未解析到标题，模板的示例标题已移除，需作者补填",
+                file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
+                needs_author=True, auto=False,
+            )
+            title_done = True
+
+    # ---- 3. 作者 / 单位命令区落笔 ----
+    if author_span:
+        s, e = author_span
         repl = (
             "% [sci-trans] 模板示例作者/单位命令（保留备查）：\n"
             + "\n".join("% " + ln for ln in region[s:e].split("\n")).rstrip()
@@ -893,7 +1004,7 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             file=path, rule_source=cfg.rule_source("output.latex.metadata.title"),
         )
 
-    # ---- 3. 摘要环境 ----
+    # ---- 4. 摘要环境 ----
     abs_span = _find_env_span(masked, "abstract") or _find_env_span(masked, "abstract*")
     if abs_span:
         s, e = abs_span
@@ -925,7 +1036,7 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             file=path, rule_source=cfg.rule_source("output.latex.metadata.abstract_env"),
         )
 
-    # ---- 4. 关键词环境 ----
+    # ---- 5. 关键词环境 ----
     kw_span = _first_env_span(masked, KEYWORD_ENVS)
     kw_value = kw_sep.join(keywords) if keywords else ""
     if kw_span:
@@ -954,9 +1065,49 @@ def _rewrite_front_region(region: str, ms: M.Manuscript, cfg: JournalConfig, pat
             file=path, rule_source=cfg.rule_source("output.latex.metadata.keywords"),
         )
 
-    # ---- 5. 落笔：替换从后往前，插入从后往前 ----
+    # ---- 6. 研究亮点（Elsevier 等要求 3–5 条，每条 ≤85 字符）----
+    hl_span = _find_env_span(masked, "highlights")
+    if hl_span:
+        s, e = hl_span
+        hl_raw = list(ms.metadata.doc_meta.get("highlights_raw") or [])
+        if hl_raw:
+            body_hl = "\n".join("\\item " + h for h in hl_raw)
+            edits.append((s, e, f"\\begin{{highlights}}\n{body_hl}\n\\end{{highlights}}"))
+            changes.record(
+                CH_METADATA, "研究亮点", after=f"{len(hl_raw)} 条",
+                reason="套用目标模板的 highlights 环境（亮点文字取自原稿，未改写）",
+                file=path, rule_source=cfg.rule_source("output.latex.metadata"),
+            )
+        else:
+            edits.append((
+                s, e,
+                "% [sci-trans] 模板要求 research highlights（3–5 条、每条 ≤85 字符），"
+                "原稿没有；请作者填写或整段删除\n"
+                "\\begin{highlights}\n\\item \n\\item \n\\item \n\\end{highlights}",
+            ))
+            changes.record(
+                CH_METADATA, "研究亮点", after="(待作者填写)",
+                reason="目标模板带 research highlights 环境（Elsevier 等必填），"
+                       "原稿未提供；已保留空模板并列入待办",
+                file=path, rule_source=cfg.rule_source("output.latex.metadata"),
+                needs_author=True, auto=False,
+            )
+
+    # ---- 7. 落笔：替换从后往前，插入从后往前 ----
+    #
+    # 区间**必须互不重叠**：替换用的是原始坐标，一旦有区间落在另一个区间
+    # 内部，先落笔的那个会让后面的坐标全部错位，切出半个单词、把注释块截断
+    # （标题曾经就是这样整条丢掉的）。这里做一次防御性校验：后出现且与已接受
+    # 区间重叠的一律丢弃（同起点时保留更长的那个），宁可少改也不写出错位的文件。
+    ordered = sorted(edits, key=lambda x: (x[0], -x[1]))
+    kept: list[tuple[int, int, str]] = []
+    for s, e, new in ordered:
+        if kept and s < kept[-1][1]:
+            continue
+        kept.append((s, e, new))
+
     out = region
-    for s, e, new in sorted(edits, key=lambda x: -x[0]):
+    for s, e, new in sorted(kept, key=lambda x: -x[0]):
         out = out[:s] + new + out[e:]
     for pos, new in sorted(inserts, key=lambda x: -x[0]):
         out = out[:pos] + new + out[pos:]
@@ -995,6 +1146,136 @@ def _body_region(main_text: str) -> tuple[str, str]:
     return body.strip("\n"), tail.strip("\n")
 
 
+_TEMPLATE_BIB_RE = re.compile(
+    r"\\(?:bibliographystyle|bibliography|printbibliography|addbibresource)"
+    r"|\\begin\s*\{thebibliography\}"
+)
+
+
+def _template_bib_region(after_front: str) -> str:
+    r"""从模板的「frontmatter 之后」部分切出可复用的文献区。
+
+    模板自带的示例正文整段丢弃；起点取**注释之外**的第一条文献命令。
+    模板常把示例写法留在注释里（`%\bibliographystyle{model1-num-names}`），
+    直接在原文上找 `\bibliographystyle` 会把行首的 `%` 一起切掉，
+    结果凭空多出一条生效的文献样式命令。
+    """
+    hits = _live_matches(_TEMPLATE_BIB_RE, after_front)
+    return after_front[hits[0].start():] if hits else ""
+
+
+def _retarget_bibliography(tail: str, ms: M.Manuscript, cfg: JournalConfig,
+                           path: str, changes: ChangeLog) -> str:
+    r"""把模板文献区里的**示例文献库**换成原稿的 .bib。
+
+    模板的 `\bibliography{cas-refs}` 指向随包样例文献；原稿自己的
+    `\bibliography{references}` 才是要编译的。之前的做法是「往后追加」，
+    三个后果一起发生：两条命令同时生效（参考文献从 50 条膨胀到 82 条）、
+    追加位置落在 `\end{document}` 之后（等于没写）、注释里的示例命令被
+    意外激活。这里改为**替换**首条、注释掉多余的示例库，并把所有追加
+    严格排在 `\end{document}` 之前。
+    """
+    stems: list[str] = []
+    for r in (ms.bib_resources or []):
+        s = Path(str(r).strip().replace("\\", "/")).name
+        if s.lower().endswith(".bib"):
+            s = s[:-4]
+        if s and s not in stems:
+            stems.append(s)
+    want = ",".join(stems)
+
+    # \end{document} 单独摘出：任何追加都必须落在它之前
+    m_end = re.search(r"\\end\s*\{document\}", tail)
+    if m_end:
+        head, close = tail[:m_end.start()], tail[m_end.start():]
+    else:
+        head, close = tail, "\\end{document}\n"
+
+    # --- \bibliography{...}：首条改为原稿文献库，其余（模板样例）注释掉 ---
+    bib_hits = _live_matches(re.compile(r"\\bibliography\s*\{([^}]*)\}"), head)
+    if bib_hits:
+        for i, m in reversed(list(enumerate(bib_hits))):
+            cur = m.group(1).strip()
+            if i == 0:
+                if not want or cur == want:
+                    continue
+                head = head[:m.start()] + f"\\bibliography{{{want}}}" + head[m.end():]
+                changes.record(
+                    CH_REFERENCE, "\\bibliography", before=cur or "(空)", after=want,
+                    reason="模板的文献库指向随包样例文献，已改为原稿的 .bib 文件",
+                    file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+                )
+            elif cur not in stems:
+                head = (head[:m.start()]
+                        + "% [sci-trans] 模板示例文献库（已注释，避免样例条目混进参考文献）："
+                        + m.group(0) + head[m.end():])
+                changes.record(
+                    CH_REFERENCE, "\\bibliography", before=cur, after="(已注释)",
+                    reason="模板的示例文献库会把样例条目一并编进参考文献，已注释掉",
+                    file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+                )
+    elif want and not _live_matches(re.compile(r"\\begin\s*\{thebibliography\}"), head):
+        head = head.rstrip() + f"\n\\bibliography{{{want}}}\n"
+        changes.record(
+            CH_REFERENCE, "\\bibliography", before="(模板中为注释/占位)", after=want,
+            reason="把模板的文献命令指向原稿的 .bib 文件",
+            file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+        )
+    elif _live_matches(re.compile(r"\\begin\s*\{thebibliography\}"), head):
+        changes.record(
+            CH_REFERENCE, "文献区", before="thebibliography 环境", after="thebibliography 环境（保留）",
+            reason="模板用内联 thebibliography 承载示例文献，未自动替换；"
+                   "请确认参考文献是否来自原稿的 .bib",
+            file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+            needs_author=True, auto=False,
+        )
+
+    # --- biblatex：\addbibresource{...} ---
+    if want:
+        add_hits = _live_matches(re.compile(r"\\addbibresource\s*\{([^}]*)\}"), head)
+        for i, m in reversed(list(enumerate(add_hits))):
+            cur = m.group(1).strip()
+            if i == 0:
+                target = f"{stems[0]}.bib"
+                if cur == target:
+                    continue
+                head = head[:m.start()] + f"\\addbibresource{{{target}}}" + head[m.end():]
+                changes.record(
+                    CH_REFERENCE, "\\addbibresource", before=cur, after=target,
+                    reason="模板的文献库指向随包样例文献，已改为原稿的 .bib 文件",
+                    file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+                )
+            else:
+                head = (head[:m.start()]
+                        + "% [sci-trans] 模板示例文献库（已注释）：" + m.group(0) + head[m.end():])
+
+    # --- 文献样式：模板模式以模板自带的样式为准 ---
+    # 模板通常随附了对应的 .bst，强行换成配置里的样式会指向不存在的文件；
+    # 不一致时保留模板样式并提示人工确认。
+    bib_cfg = cfg.latex().get("bibliography", {}) or {}
+    target_style = bib_cfg.get("style") or cfg.bib_style
+    style_hits = _live_matches(re.compile(r"\\bibliographystyle\s*\{([^}]*)\}"), head)
+    if style_hits:
+        cur = style_hits[0].group(1).strip()
+        if target_style and cur and cur != target_style:
+            changes.record(
+                CH_REFERENCE, "\\bibliographystyle", before=cur, after=cur,
+                reason=f"模板自带文献样式 {cur}，与期刊配置的 {target_style} 不一致；"
+                       "已保留模板样式（模板随附对应的 .bst），需人工确认该用哪一个",
+                file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+                needs_author=True, auto=False,
+            )
+    elif target_style:
+        head = head.rstrip() + f"\n\\bibliographystyle{{{target_style}}}\n"
+        changes.record(
+            CH_REFERENCE, "\\bibliographystyle", before="(模板未指定)", after=target_style,
+            reason="模板未指定参考文献样式，按期刊配置补上",
+            file=path, rule_source=cfg.rule_source("references.bibtex_style"),
+        )
+
+    return head.rstrip("\n") + "\n\n" + close.lstrip("\n")
+
+
 def convert_latex_template(
     ms: M.Manuscript,
     cfg: JournalConfig,
@@ -1031,7 +1312,7 @@ def convert_latex_template(
     log.step(f"已复制 {copied} 个原稿文件到 {out}")
 
     # ---- 2. 复制模板辅助文件（.cls/.bst/.sty 等）----
-    aux = _copy_template_assets(tpl_path.parent, out, log)
+    aux = _copy_template_assets(tpl_path.parent, out, log, _template_asset_refs(tpl_text))
     if aux:
         changes.record(
             CH_ASSET, "模板辅助文件", after=f"{len(aux)} 个（{', '.join(aux[:6])}）",
@@ -1082,11 +1363,11 @@ def convert_latex_template(
         )
 
     body_new = body
-    # 模板自带示例正文（frontmatter 之后到文献命令之间）整段丢弃，换成原稿正文
-    tail_after = re.sub(
-        r"\A.*?(?=\\(?:bibliographystyle|bibliography|begin\s*\{thebibliography\}|printbibliography|addbibresource))",
-        "", after_front, flags=re.S,
-    ) if re.search(r"\\(?:bibliographystyle|bibliography|begin\s*\{thebibliography\}|printbibliography|addbibresource)", after_front) else ""
+    # 模板自带示例正文（frontmatter 之后到文献命令之间）整段丢弃，换成原稿正文。
+    # 切分点必须取**没被注释掉**的那条文献命令：模板常写成
+    # `%\bibliographystyle{model1-num-names}` 作为示例占位，在原文上直接找
+    # 会把行首的 `%` 一起切掉，凭空多出一条生效的命令。
+    tail_after = _template_bib_region(after_front)
     if not tail_after.strip():
         # 模板尾部没有可复用的文献区 → 用原稿的文献区
         tail_after = ms_bib
@@ -1101,39 +1382,10 @@ def convert_latex_template(
     # ---- 7. 声明补齐（排在参考文献命令之前）----
     body_new = op_declarations(body_new, ms, cfg, main_rel.as_posix(), changes)
 
-    # ---- 8. 文献样式 ----
-    # 模板模式以**模板自带的样式**为准：模板通常随附了对应的 .bst，
-    # 强行换成配置里的样式会指向一个不存在的文件。不一致时提示人工确认。
-    bib_cfg = cfg.latex().get("bibliography", {}) or {}
-    target_style = bib_cfg.get("style") or cfg.bib_style
-    m_style = re.search(r"\\bibliographystyle\s*\{([^}]*)\}", tail_after)
-    if m_style:
-        cur = m_style.group(1).strip()
-        if target_style and cur and cur != target_style:
-            changes.record(
-                CH_REFERENCE, "\\bibliographystyle", before=cur, after=cur,
-                reason=f"模板自带文献样式 {cur}，与期刊配置的 {target_style} 不一致；"
-                       "已保留模板样式（模板随附对应的 .bst），需人工确认该用哪一个",
-                file=main_rel.as_posix(), rule_source=cfg.rule_source("references.bibtex_style"),
-                needs_author=True, auto=False,
-            )
-    elif target_style:
-        tail_after = tail_after.rstrip() + f"\n\\bibliographystyle{{{target_style}}}\n"
-        changes.record(
-            CH_REFERENCE, "\\bibliographystyle", before="(模板未指定)", after=target_style,
-            reason="模板未指定参考文献样式，按期刊配置补上",
-            file=main_rel.as_posix(), rule_source=cfg.rule_source("references.bibtex_style"),
-        )
-    # 原稿的文献库路径要能被找到（模板里通常是注释掉的）
-    for bibres in (ms.bib_resources or []):
-        stem = Path(bibres.strip().replace("\\", "/")).name
-        if f"\\bibliography{{{stem}}}" not in tail_after:
-            tail_after = tail_after.rstrip() + f"\n\\bibliography{{{stem}}}\n"
-            changes.record(
-                CH_REFERENCE, "\\bibliography", before="(模板中为注释/占位)", after=stem,
-                reason="把模板的文献命令指向原稿的 .bib 文件",
-                file=main_rel.as_posix(), rule_source=cfg.rule_source("references.bibtex_style"),
-            )
+    # ---- 8. 文献样式与文献库 ----
+    tail_after = _retarget_bibliography(
+        tail_after, ms, cfg, main_rel.as_posix(), changes,
+    )
 
     # ---- 9. 章节编号策略 ----
     body_new = op_section_numbering(body_new, cfg, main_rel.as_posix(), changes)

@@ -545,6 +545,340 @@ def test_template_archive() -> None:
     J.ARCHIVE_CACHE_DIR = orig_cache
 
 
+# 真实投稿里踩过的元信息/文献区坑（Springer sn-jnl 原稿 + Elsevier CAS 模板）
+SNJ_MANUSCRIPT = r"""\documentclass[pdflatex,sn-mathphys-num]{snjtest}
+\usepackage{amsmath}
+\usepackage{xcolor}
+
+\providecommand{\orgdiv}[1]{#1}
+
+\begin{document}
+
+\title[Short Regression Title]{A Long Regression Title: Command-Form Abstract}
+
+\abstract{This abstract uses the \emph{command} form with markup \textcolor{red}{and color}, and 20\% coverage. It must survive the template移植 verbatim.}
+
+\keywords{alpha learning, beta transfer, gamma weighting}
+
+\maketitle
+
+% Main text
+\section{Introduction}\label{introduction}
+Body text citing \cite{alpha2020} and pointing at \autoref{eq:one}.
+
+\begin{equation}\label{eq:one}
+E = mc^2
+\end{equation}
+
+\section{Conclusion}\label{conclusion}
+Done.
+
+\bibliographystyle{snjtest-num}
+\bibliography{myrefs}
+
+\end{document}
+"""
+
+SNJ_TITLE_PAGE = r"""\documentclass[12pt]{article}
+\usepackage{authblk}
+
+\title{\textbf{A Long Regression Title: Command-Form Abstract}}
+
+\author[1]{Alice Alpha\thanks{Corresponding author. Email: alice@example.edu}}
+\author[1]{Bob Beta}
+\author[2]{Carol Gamma}
+
+\affil[1]{School of Alpha, Alpha University, Alpha City, China}
+\affil[2]{Institute of Gamma, Gamma University, Gamma City, China}
+
+\begin{document}
+\maketitle
+\end{document}
+"""
+
+CAS_STYLE_TEMPLATE = r"""%% 测试用「CAS 风格官方模板」夹具。
+%% 关键结构：**没有 frontmatter 环境**，元信息命令直接放在 \begin{document} 之后；
+%% \title 夹在 \shorttitle 与 \fntext 之间，会被「作者/单位命令区」整段覆盖；
+%% 文献区里同时有注释掉的示例样式和活着的示例文献库。
+\documentclass[a4paper,fleqn]{casstyle}
+
+\usepackage[authoryear,longnamesfirst]{natbib}
+
+\begin{document}
+\let\WriteBookmarks\relax
+
+% Short title
+\shorttitle{}
+
+% Short author
+\shortauthors{}
+
+% Main title of the paper
+\title [mode = title]{}
+
+% Title footnote mark
+% eg: \tnotemark[1]
+\tnotemark[1]
+
+% First author
+%
+% Options: Use if required
+% eg: \author[1,3]{Author Name}[type=editor,
+%       style=chinese]
+\author[1]{}%[<options>]
+
+% Corresponding author indication
+\cormark[1]
+
+% Email id of the first author
+\ead{}
+
+% Address/affiliation
+\affiliation[1]{organization={},
+            addressline={},
+            city={},
+            postcode={},
+            state={},
+            country={}}
+
+% Corresponding author text
+\cortext[1]{Corresponding author}
+
+% Footnote text
+\fntext[1]{}
+
+% Here goes the abstract
+\begin{abstract}
+Here goes the abstract \nocite{*}%% Remove this line from your manuscript.
+\end{abstract}
+
+% Research highlights
+\begin{highlights}
+\item 
+\item 
+\item 
+\end{highlights}
+
+% Keywords
+% Each keyword is seperated by \sep
+\begin{keywords}
+ \sep \sep \sep
+\end{keywords}
+
+\maketitle
+
+% Main text
+\section{}
+Template sample body text that must be replaced by the manuscript body.
+
+%% Loading bibliography style file
+%\bibliographystyle{casstyle-num-names}
+\bibliographystyle{casstyle-num}
+
+% Loading bibliography database
+\bibliography{sample-refs}
+
+\end{document}
+"""
+
+
+def test_frontmatter_regression() -> None:
+    """真实投稿踩过的元信息/文献区缺陷，逐条钉住。
+
+    三条都是「产出看起来正常、实际错了」的类型，必须靠回归测试守着：
+
+    1. 摘要写成 `\\abstract{...}` 命令（Springer sn-jnl）而不是 abstract 环境
+       → 解析器不认，摘要整条丢失，产出变成「[待作者填写]」。
+    2. 模板的 `\\title` 夹在「作者/单位命令区」区间之内 → 两个替换区间重叠，
+       后落笔的用旧坐标切片，标题被吞掉、注释块被切出半个单词（`ng author text`）。
+    3. 模板的示例文献库 `\\bibliography{sample-refs}` 没被替换，原稿的
+       `\\bibliography{myrefs}` 只是往后追加 → 两条同时生效（参考文献膨胀），
+       而且追加位置落在 `\\end{document}` 之后，等于没写。
+    """
+    print("\n== 元信息与文献区回归（真实投稿形态）==")
+    fix = OUT / "regress-snj"
+    if fix.exists():
+        shutil.rmtree(fix)
+    fix.mkdir(parents=True)
+    (fix / "Manuscript.tex").write_text(SNJ_MANUSCRIPT, encoding="utf-8", newline="\n")
+    (fix / "Title_Page.tex").write_text(SNJ_TITLE_PAGE, encoding="utf-8", newline="\n")
+    (fix / "myrefs.bib").write_text(
+        "@article{alpha2020, title={Alpha}, author={A. Alpha}, year={2020}}\n"
+        "@article{beta2021, title={Beta}, author={B. Beta}, year={2021}}\n",
+        encoding="utf-8", newline="\n",
+    )
+    (fix / "snjtest.cls").write_text("\\NeedsTeXFormat{LaTeX2e}\n", encoding="utf-8")
+    (fix / "snjtest-num.bst").write_text("% stub\n", encoding="utf-8")
+
+    kit = OUT / "regress-cas-kit"
+    if kit.exists():
+        shutil.rmtree(kit)
+    kit.mkdir(parents=True)
+    (kit / "cas-style-template.tex").write_text(CAS_STYLE_TEMPLATE, encoding="utf-8", newline="\n")
+    (kit / "casstyle.cls").write_text("\\NeedsTeXFormat{LaTeX2e}\n", encoding="utf-8")
+    (kit / "casstyle-num.bst").write_text("% stub\n", encoding="utf-8")
+    (kit / "sample-refs.bib").write_text(
+        "@article{sample1, title={Sample One}, year={1999}}\n"
+        "@article{sample2, title={Sample Two}, year={2000}}\n"
+        "@article{sample3, title={Sample Three}, year={2001}}\n",
+        encoding="utf-8", newline="\n",
+    )
+
+    # ---- 1) 命令式摘要 + 独立标题页 ----
+    ms_src = latex_parse.parse_latex(fix)
+    check("sn-jnl：命令式 \\abstract{...} 被解析（不再是空摘要）",
+          len(ms_src.metadata.abstract) > 80
+          and "20\\%" in ms_src.metadata.abstract_raw,
+          repr(ms_src.metadata.abstract[:60]))
+    check("sn-jnl：\\title[短]{长} 取的是长标题",
+          ms_src.metadata.title.startswith("A Long Regression Title"), ms_src.metadata.title)
+    check("独立标题页：作者/单位被补入（\\title 与主文件逐字相同才认）",
+          [a["name"] for a in ms_src.metadata.authors]
+          == ["Alice Alpha", "Bob Beta", "Carol Gamma"],
+          str(ms_src.metadata.authors))
+    check("独立标题页：单位标签映射正确（\\author[2] → 第 2 个单位）",
+          len(ms_src.metadata.affiliations) == 2
+          and ms_src.metadata.doc_meta["affiliation_map"].get("2", "").startswith("Institute of Gamma"),
+          str(ms_src.metadata.affiliations))
+    check("独立标题页：通讯作者脚注不被当成单位",
+          not any("Corresponding author" in a for a in ms_src.metadata.affiliations),
+          str(ms_src.metadata.affiliations))
+    check("独立标题页：作者自带的单位标记不因脚注而丢失",
+          [a.get("affil") for a in ms_src.metadata.authors] == ["1", "1", "2"],
+          str([(a["name"], a.get("affil")) for a in ms_src.metadata.authors]))
+
+    # ---- 2) 换到 CAS 风格模板 ----
+    res = run_pipeline(fix, "", OUT / "regress-out", cwd=ROOT, make_pdf=False,
+                       log=Log(verbose=False),
+                       template=str(kit / "cas-style-template.tex"))
+    src = Path(res["journal_dir"]) / "src"
+    t = (src / "Manuscript.tex").read_text(encoding="utf-8")
+    live = "\n".join(ln for ln in t.split("\n") if not ln.lstrip().startswith("%"))
+
+    check("CAS 风格：标题落在新块里且只出现一次（不被作者块覆盖）",
+          t.count("\\title{A Long Regression Title: Command-Form Abstract}") == 1
+          and "A Long Regression Title" in live,
+          str([ln for ln in live.split("\n") if "\\title" in ln]))
+    check("CAS 风格：摘要原文（宏与 \\% 未丢）",
+          "\\textcolor{red}{and color}" in t and "20\\%" in t
+          and "This abstract uses the" in live)
+    check("CAS 风格：模板示例摘要被替换", "Here goes the abstract" not in live)
+    check("CAS 风格：作者按模板命令体系重建且单位对应正确",
+          "\\author[aff1]{Alice Alpha}" in t and "\\author[aff2]{Carol Gamma}" in t
+          and "\\affiliation[aff2]{Institute of Gamma" in t,
+          str([ln for ln in live.split("\n") if "\\author[" in ln]))
+    check("CAS 风格：模板示例作者命令完整保留在注释里（逐行加 %、零截断）",
+          "\n% \\shorttitle{}\n" in t and "\n% \\fntext[1]{}\n" in t
+          and "\nng author text\n" not in t)
+    # 最强的一条：注释保留区必须是模板原文「逐行加 % 」的忠实副本，
+    # 任何截断/坐标错位都会让这段对不上。
+    tpl_text = (kit / "cas-style-template.tex").read_text(encoding="utf-8")
+    _s0 = tpl_text.index("\\shorttitle{}")
+    _e0 = tpl_text.index("\\fntext[1]{}") + len("\\fntext[1]{}")
+    _expected = "\n".join("% " + ln for ln in tpl_text[_s0:_e0].split("\n"))
+    check("CAS 风格：注释保留区与模板原文逐字一致（无错位/无截断）",
+          _expected in t)
+    check("CAS 风格：关键词用模板分隔符 \\sep",
+          "alpha learning \\sep beta transfer \\sep gamma weighting" in t)
+    check("CAS 风格：模板示例正文被替换", "Template sample body text" not in t)
+    check("CAS 风格：模板要求的 research highlights 原稿没有 → 明确列为待作者填写",
+          "[sci-trans] 模板要求 research highlights" in t
+          and any("研究亮点" in x for x in
+                  (Path(res["journal_dir"]) / "conversion-log.md")
+                  .read_text(encoding="utf-8").split("- [ ]")))
+
+    # ---- 3) 文献区 ----
+    check("文献区：模板示例文献库被替换（不是往后追加）",
+          "\\bibliography{myrefs}" in live and "\\bibliography{sample-refs}" not in live,
+          str([ln for ln in live.split("\n") if "\\bibliography" in ln]))
+    check("文献区：追加内容落在 \\end{document} 之前",
+          t.count("\\end{document}") == 1
+          and t.find("\\bibliography{myrefs}") < t.find("\\end{document}"))
+    check("文献区：注释里的示例文献样式没有被意外激活",
+          "\\bibliographystyle{casstyle-num-names}" not in live
+          and "\\bibliographystyle{casstyle-num}" in live,
+          str([ln for ln in live.split("\n") if "\\bibliographystyle" in ln]))
+
+    # ---- 3b) 原稿自带 highlights 时要原样搬进模板 ----
+    fix_hl = OUT / "regress-hl"
+    if fix_hl.exists():
+        shutil.rmtree(fix_hl)
+    shutil.copytree(fix, fix_hl)
+    _hl = (fix_hl / "Manuscript.tex").read_text(encoding="utf-8").replace(
+        "\\maketitle",
+        "\\begin{highlights}\n\\item Alpha finding\n\\item Beta finding\n"
+        "\\end{highlights}\n\n\\maketitle",
+    )
+    (fix_hl / "Manuscript.tex").write_text(_hl, encoding="utf-8", newline="\n")
+    res_hl = run_pipeline(fix_hl, "", OUT / "regress-hl-out", cwd=ROOT, make_pdf=False,
+                          log=Log(verbose=False),
+                          template=str(kit / "cas-style-template.tex"))
+    t_hl = (Path(res_hl["journal_dir"]) / "src" / "Manuscript.tex").read_text(encoding="utf-8")
+    check("CAS 风格：原稿自带 highlights 时原样搬进模板（不丢条目）",
+          "\\item Alpha finding" in t_hl and "\\item Beta finding" in t_hl,
+          str([ln for ln in t_hl.split("\n") if "item " in ln][:6]))
+
+    # ---- 4) 内容零丢失 ----
+    ms_before = latex_parse.parse_latex(fix)
+    ms_before.references = refs_mod.load_references(ms_before, fix)
+    ms_after = latex_parse.parse_latex(src)
+    ms_after.references = refs_mod.load_references(ms_after, src)
+    d = diff_manuscripts(ms_before, ms_after)
+    check("回归：正文/图表/公式/引用零丢失",
+          not d["sections"]["changed"] and not d["figures"]["removed"]
+          and not d["tables"]["removed"] and not d["equations"]["removed"]
+          and not d["citations"]["removed"],
+          f"changed={len(d['sections']['changed'])}")
+    check("回归：参考文献条数不变（示例库未混入）",
+          len(ms_before.references) == len(ms_after.references),
+          f"{len(ms_before.references)} -> {len(ms_after.references)}")
+    check("回归：摘要与标题在转换稿里仍可解析回来",
+          ms_after.metadata.title == ms_before.metadata.title
+          and ms_after.metadata.abstract == ms_before.metadata.abstract)
+
+    # ---- 5) 嵌套在分组参数里的内容：scan_commands 读到配平分组会整块跳过 ----
+    nested = OUT / "regress-labels"
+    nested.mkdir(parents=True, exist_ok=True)
+    (nested / "panel-a.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    (nested / "panel-b.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    (nested / "main.tex").write_text(
+        "\\documentclass{article}\n\\usepackage{subfig}\n\\usepackage{xcolor}\n"
+        "\\begin{document}\n"
+        "\\section{One}\\label{sec:one}\n"
+        "See \\autoref{fig:sub} and \\ref{alg:one}.\n"
+        "\\begin{figure}\\centering\n"
+        "\\subfloat[Panel A\\label{fig:sub}]{\\includegraphics[width=0.5\\textwidth]{panel-a.png}}\n"
+        "\\subfloat[Panel B\\label{fig:sub2}]{\\includegraphics[width=0.5\\textwidth]{panel-b.png}}\n"
+        "\\caption{Overall}\\label{fig:overall}\n\\end{figure}\n"
+        "\\begin{algorithm}\\caption{Alg}\\label{alg:one}\\end{algorithm}\n"
+        "\\section{Two}\\label{sec:two}\n"
+        # 引用写在分组参数内部：scan_commands 读到配平分组会整块跳过
+        "\\textcolor{red}{As shown in \\autoref{fig:overall} and \\cite{alpha2020}, ...}\n"
+        "\\end{document}\n",
+        encoding="utf-8", newline="\n",
+    )
+    ms_n = latex_parse.parse_latex(nested)
+    ms_n.references = refs_mod.load_references(ms_n, nested)
+    check("嵌套 \\subfloat[..]{\\includegraphics{..}} 里的图片文件被收集到",
+          ms_n.figures and ms_n.figures[0].files == ["panel-a.png", "panel-b.png"],
+          str([f.files for f in ms_n.figures]))
+    check("分组参数内部的 \\cite 不被漏掉",
+          "alpha2020" in {c.key for c in ms_n.citations},
+          str(sorted({c.key for c in ms_n.citations})))
+    check("分组参数内部的 \\autoref 不被漏掉，图不再被当成「没被引用」",
+          ms_n.figures and ms_n.figures[0].referenced_in,
+          str([f.referenced_in for f in ms_n.figures]))
+    bag_n = run_qc(ms_n, J.load("ieee-trans", ROOT), nested, None, Log(verbose=False),
+                   {r.key for r in ms_n.references if r.origin == "bib"}, None, "测试")
+    codes_n = codes(bag_n)
+    check("嵌套 \\label（\\subfloat[] / algorithm 环境）不被误报为未定义引用",
+          "LTX005" not in codes_n, str(codes_n))
+    check("分组参数里的图片不再被误报为「没有图片文件」",
+          not any(i.code == "FIG002" for i in bag_n.items), str(codes_n))
+    check("被引用过的图不再被误报为「正文中没有引用」",
+          not any(i.code == "FIG050" for i in bag_n.items), str(codes_n))
+
+
 def test_rule_binding() -> None:
     """配置里的规则必须真的绑到检查上。
 
@@ -629,8 +963,8 @@ def main() -> int:
 
     for fn in (test_latex_parse, test_latex_qc, test_latex_convert_roundtrip,
                test_docx_parse, test_docx_convert, test_pipeline,
-               test_template_mode, test_template_archive, test_rule_binding,
-               test_issue_code_hygiene):
+               test_template_mode, test_template_archive, test_frontmatter_regression,
+               test_rule_binding, test_issue_code_hygiene):
         try:
             fn()
         except Exception as exc:

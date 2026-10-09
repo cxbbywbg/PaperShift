@@ -142,6 +142,9 @@ def static_check(root: str | Path, ms: M.Manuscript, known_bib_keys: set[str] | 
 
     # ---- 5. 未定义的 \\ref / \\eqref 目标 ----
     known = set(label_owner)
+    # 兜底：解析器另外收了一份「全量 \label」清单，覆盖 algorithm 环境、
+    # \subfloat[...] 可选参数等结构化收集收不到的位置，避免误报。
+    known |= set(ms.metadata.doc_meta.get("all_labels") or [])
     known |= {s.number for s in ms.sections if s.number}
     known |= {f"fig:{f.number}" for f in ms.figures}
     known |= {f"tab:{t.number}" for t in ms.tables}

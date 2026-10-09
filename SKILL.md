@@ -77,6 +77,10 @@ python scripts/sci.py run ~/Downloads/my-paper.zip \
 - 配置里的 `packages_add` 在模板模式下**不强制添加**（避免 option clash），转换记录里会明确写"未做的改动"。
 - 结构定位失败（模板里找不到 `\begin{document}` 等）时**降级回定点手术并报 `CVT012`**，不静默失败。
 - **模板压缩包自动解包**：`--template kit.zip` 等价于「手工解压后指向包内主文件」，结果包内容逐字节一致。包内 `readme`、作者须知、`__MACOSX` 垃圾不复制。包内有**多份**候选主文件时报 `CVT013` 并列出候选——不同候选常常对应不同引用样式（elsarticle 的 num / harv / num-names 就是三份不同模板），**这一条必须人工过目**；不对就用 `kit.zip::包内路径` 指定。
+- **模板辅助文件按需复制**：主文件同目录下的 `.cls`/`.bst`/`.sty` 一律随包；图片与 `.bib` 只在模板主文件真的引用时才带 —— 官方 kit 里的 `sample.pdf`、`doc/`、`thumbnails/` 是示例资料，照单全收会让作者把样例一起投出去。
+- **元信息写法差异都认**：`\title[短]{长}`（取长标题）、命令式 `\abstract{...}`（Springer sn-jnl）与环境式 `\begin{abstract}`、`\keywords{a,b}` 与 `\begin{keyword}...\sep...`。
+- **作者信息在独立标题页时**：主文件没有 `\author` 才会去找同目录另一个 `.tex`，且**只认 `\title` 与主文件逐字相同的那一个**（同目录常有回复审稿人意见书等别的文档，不能见 `\author` 就用）。补入后写进转换记录。
+- **模板要求 research highlights 而原稿没有**：明确列进「需作者确认」，不留一堆空 `\item` 让作者自己发现。
 
 `--journal` 与 `--template` 的分工：**期刊配置提供"规则"（图片 DPI、声明要求、篇幅上限…），模板提供"结构"（文档类、命令体系、版式骨架）**。两个都给 = 规则 + 结构都齐；只给 `--template` = 只做结构移植，不做期刊规范判定（结果包目录名为 `template-only`）。
 
