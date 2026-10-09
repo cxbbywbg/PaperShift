@@ -298,6 +298,14 @@ def render_package_index(
     for name, desc in files.items():
         L.append(f"| `{name}` | {desc} |")
     L.append("")
+    # 编译入口：结果包里可能有多个 .tex（原稿项目自带的标题页、回复信等），
+    # 说明清楚哪个才是要编译的主文件，省得在 Overleaf 里选错。
+    main_name = Path(ms.main_file).name if getattr(ms, "main_file", "") else ""
+    if main_name:
+        L.append("## 编译入口")
+        L.append("")
+        L.append(f"主文件是 **`src/{main_name}`**（上传 Overleaf 后在菜单里把它设为 Main document）。")
+        L.append("")
     L.append("## 概览")
     L.append("")
     if bag_after is not None:
