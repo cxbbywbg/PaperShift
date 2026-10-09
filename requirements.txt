@@ -1,0 +1,18 @@
+# SCI Paper Reformatter 依赖
+#
+# 安装：pip install -r requirements.txt
+# 自检：python scripts/sci.py doctor
+
+# --- 必需：缺失会直接导致启动失败 ---
+python-docx>=1.1      # Word (.docx) 读写
+PyYAML>=6.0           # 期刊配置（YAML）
+lxml>=4.9             # OOXML / XML 解析
+
+# --- 可选：缺失时对应能力自动降级，不影响核心流程 ---
+# 需要时把下面两行的注释去掉。
+# Pillow>=10.0        # 读取图片像素尺寸；缺失时图片分辨率检查降级并报 FIG 类提示
+# bibtexparser>=1.4   # 解析 .bib；缺失时回退到内置正则解析（兼容性略差）
+
+# --- 外部工具（非 pip 包）：缺失不影响解析/转换/质检，只影响 PDF 预览 ---
+# TeX 发行版（TeX Live / MiKTeX）→ LaTeX 真实编译 + PDF 预览
+# LibreOffice 或 pandoc        → Word 转 PDF 预览
